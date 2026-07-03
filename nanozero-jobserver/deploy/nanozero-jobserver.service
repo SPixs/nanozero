@@ -1,0 +1,39 @@
+# Unit systemd --user du nanozero-jobserver (déployée sur DevSrv 2026-06-19).
+# Installation : copier dans ~/.config/systemd/user/ puis :
+#   loginctl enable-linger "$USER"        # survit à la déconnexion SSH + démarre au boot
+#   systemctl --user daemon-reload
+#   systemctl --user enable --now nanozero-jobserver
+# Gestion : systemctl --user {start,stop,restart,status} nanozero-jobserver
+#           journalctl --user -u nanozero-jobserver -f
+# NB : chemins absolus spécifiques à DevSrv (venv poetry + dir projet).
+[Unit]
+Description=NanoZero jobserver (serveur de jobs self-play AlphaZero distribué)
+Documentation=file://%h/dev/nanozero/nanozero-jobserver/README.md
+# Backstop anti restart-loop : si le process crash 5 fois en 60 s (ex. DB corrompue,
+# config invalide), systemd abandonne au lieu de boucler indéfiniment.
+StartLimitIntervalSec=60
+StartLimitBurst=5
+
+[Service]
+Type=simple
+WorkingDirectory=%h/dev/nanozero/nanozero-jobserver
+ExecStart=%h/.cache/pypoetry/virtualenvs/nanozero-jobserver-rwK4PwuD-py3.12/bin/nanozero-jobserver --host 0.0.0.0 --port 8090
+# Gamification (STORY-001) : cible de la jauge collective « Ensemble vers gen-N+1 ».
+# collective_pct = verified_positions(gen courante) / cette cible. ~20M ~= cadence corpus
+# gen-031 (~19,5M). A ajuster selon la cadence reelle de declenchement du training.
+Environment=NANOZERO_JOBSERVER_SEASON_TARGET=20000000
+# Reprise UNIQUEMENT sur crash (exit != 0). Un `systemctl --user stop` (exit 0)
+# n'est PAS un échec => AUCUN redémarrage auto : l'arrêt manuel reste simple.
+Restart=on-failure
+RestartSec=5
+# Arrêt gracieux : SIGTERM déclenche le lifespan shutdown (force_flush du tampon).
+# 45 s de marge avant SIGKILL (le force_flush du tampon flotte est rapide).
+KillSignal=SIGTERM
+TimeoutStopSec=45
+# Logs => journald (rotation native bornée => fini le fichier .log non borné de 404 Mo).
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=nanozero-jobserver
+
+[Install]
+WantedBy=default.target

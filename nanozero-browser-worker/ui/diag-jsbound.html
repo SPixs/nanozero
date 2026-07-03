@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NanoZero — Diag #2 : ms/appel mesure-t-il le GPU ou le thread JS ?</title>
+<!-- Diagnostic #2 (contrôlé), version THREAD PRINCIPAL. Prouve, par la mesure, que `ms/appel`/`GPU%`
+     du worker sont des ARTEFACTS de la charge JS mono-thread, PAS du temps GPU.
+     ORT chargé via <script src> sur le thread principal (comme la page n°1, qui marche) — car dans cet
+     environnement un Web Worker ne peut pas importScripts le CDN. Le mécanisme de l'artefact est
+     identique sur tout event-loop mono-thread (worker OU main thread). ⚠️ La page SE FIGE pendant le
+     test (charge JS synchrone injectée) — c'est précisément ce qu'on démontre. Attends le rapport. -->
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.webgpu.min.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  body { font: 14px/1.5 system-ui, sans-serif; margin: 0; padding: 1.2rem; background: #11141a; color: #e6e8ec; }
+  h1 { font-size: 1.1rem; margin: 0 0 .3rem; }
+  p.sub { color: #9aa3b2; margin: 0 0 1rem; }
+  button { font: inherit; padding: .55rem 1rem; border-radius: 8px; border: 1px solid #2c3340; background: #1b212c; color: #e6e8ec; cursor: pointer; }
+  button.primary { background: #2563eb; border-color: #2563eb; font-weight: 600; }
+  button:disabled { opacity: .5; cursor: default; }
+  .row { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; margin-bottom: .8rem; }
+  input[type=text] { font: inherit; padding: .5rem; border-radius: 8px; border: 1px solid #2c3340; background: #0d1016; color: #e6e8ec; min-width: 22rem; }
+  label.small { color: #9aa3b2; font-size: 12.5px; }
+  #live { white-space: pre-wrap; background: #0d1016; border: 1px solid #1f2630; border-radius: 8px; padding: .7rem; height: 10rem; overflow: auto; font-family: ui-monospace, monospace; font-size: 12.5px; margin-bottom: .8rem; }
+  textarea { width: 100%; height: 22rem; box-sizing: border-box; background: #0d1016; color: #cfe3d0; border: 1px solid #1f2630; border-radius: 8px; padding: .7rem; font-family: ui-monospace, monospace; font-size: 12.5px; }
+</style>
+</head>
+<body>
+  <h1>Diag #2 — « ms/appel » mesure-t-il le GPU ou le thread JS ?</h1>
+  <p class="sub">Inférence sur le thread principal + charge JS synchrone calibrée. Reproduit (ou non) les 629 ms à partir d'une cause connue. <b>La page se fige pendant le test — normal.</b> Aucune écriture, aucun submit.</p>
+
+  <div class="row">
+    <label class="small">Serveur (gateway) :</label>
+    <input id="baseUrl" type="text" placeholder="https://… (défaut : cette origine)">
+    <label class="small">ou modèle local :</label>
+    <input id="modelFile" type="file" accept=".onnx">
+  </div>
+  <div class="row">
+    <button id="run" class="primary">Lancer le diagnostic #2</button>
+    <button id="copy" disabled>Copier le rapport</button>
+    <span id="status" class="small"></span>
+  </div>
+
+  <div id="live"></div>
+  <textarea id="report" readonly placeholder="Le rapport copiable s'affichera ici…"></textarea>
+
+<script type="module">
+const ort = window.ort;
+const CDN = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/';
+ort.env.wasm.wasmPaths = CDN;
+const TENSOR_SIZE = 119 * 8 * 8; // 7616
+const N = 267;                   // la taille de batch observée en prod
+
+const $ = (id) => document.getElementById(id);
+const liveEl = $('live');
+const R = [];
+const rep = (l = '') => R.push(l);
+const live = (m) => { liveEl.textContent += m + '\n'; liveEl.scrollTop = liveEl.scrollHeight; };
+const f1 = (x) => (x == null ? '—' : (+x).toFixed(1));
+const median = (a) => { const s = [...a].sort((x, y) => x - y); return s[Math.floor(s.length / 2)]; };
+const yield_ = () => new Promise((r) => setTimeout(r, 30)); // laisse l'UI peindre entre les étapes
+
+async function getModelBytes(baseUrl) {
+  const fi = $('modelFile');
+  if (fi.files && fi.files[0]) { return { version: 'fichier:' + fi.files[0].name, bytes: new Uint8Array(await fi.files[0].arrayBuffer()) }; }
+  const base = (baseUrl || '').replace(/\/+$/, '');
+  const cur = await (await fetch(base + '/models/current', { headers: { 'X-Worker-Id': 'diag2' } })).json();
+  const ver = cur && cur.version;
+  if (!Number.isInteger(ver)) throw new Error('/models/current invalide : ' + JSON.stringify(cur));
+  const dl = await fetch(base + '/models/' + ver + '/download', { headers: { 'X-Worker-Id': 'diag2' } });
+  if (!dl.ok) throw new Error('/models/' + ver + '/download → HTTP ' + dl.status);
+  return { version: ver, bytes: new Uint8Array(await dl.arrayBuffer()) };
+}
+
+function finish() { $('report').value = R.join('\n'); $('run').disabled = false; $('copy').disabled = false; $('status').textContent = 'terminé ✓'; }
+
+async function main() {
+  $('run').disabled = true; $('copy').disabled = true; $('status').textContent = 'en cours…'; liveEl.textContent = ''; R.length = 0;
+  rep('============ NANOZERO — DIAG #2 (thread principal) : ms/appel = GPU ou thread JS ? ============');
+  rep('Date          : ' + new Date().toISOString());
+  rep('secureContext : ' + self.isSecureContext + ' | crossOriginIsolated : ' + self.crossOriginIsolated + ' | cœurs : ' + (navigator.hardwareConcurrency || '?'));
+  live('Téléchargement du modèle…');
+  let model;
+  try { model = await getModelBytes($('baseUrl').value.trim()); }
+  catch (e) { live('❌ modèle : ' + e + ' → choisis un .onnx local.'); rep('ERREUR modèle : ' + e); finish(); return; }
+  rep('Modèle        : v' + model.version + ' | ' + model.bytes.length + ' o');
+  live('Modèle v' + model.version + ' chargé. Création session (webgpu,wasm)…');
+
+  let session, inName, polName, valName;
+  try {
+    session = await ort.InferenceSession.create(model.bytes, { executionProviders: ['webgpu', 'wasm'], graphOptimizationLevel: 'all' });
+    inName = session.inputNames[0];
+    const outs = session.outputNames;
+    polName = outs.includes('policy_logits') ? 'policy_logits' : outs[0];
+    valName = outs.includes('value') ? 'value' : outs[outs.length - 1];
+    rep('Session       : in=' + inName + ' out=' + JSON.stringify(outs));
+  } catch (e) { live('❌ session : ' + e); rep('ERREUR session : ' + e); finish(); return; }
+
+  const planes = new Float32Array(N * TENSOR_SIZE);
+  const feeds = () => { const f = {}; f[inName] = new ort.Tensor('float32', planes, [N, 119, 8, 8]); return f; };
+  const readAndSoftmax = (o) => { const v = o[valName].data; o[polName].data; let s = 0; for (let j = 0; j < N; j++) { const a = v[j * 3], b = v[j * 3 + 1], c = v[j * 3 + 2], m = Math.max(a, b, c); s += Math.exp(a - m) / (Math.exp(a - m) + Math.exp(b - m) + Math.exp(c - m)); } return s; };
+  const busy = (ms) => { const end = performance.now() + ms; let x = 0; while (performance.now() < end) { x += Math.sqrt(end - x); } return x; }; // charge JS synchrone (≈ MCTS chess.js)
+
+  live('warmup…'); await yield_();
+  for (let i = 0; i < 3; i++) readAndSoftmax(await session.run(feeds()));
+
+  // --- Exp A : session.run PUR @267, sans charge -----------------------------------------------
+  live('Exp A : session.run pur ×8…'); await yield_();
+  const pure = [];
+  for (let i = 0; i < 8; i++) { const t0 = performance.now(); const o = await session.run(feeds()); const t1 = performance.now(); readAndSoftmax(o); pure.push(t1 - t0); }
+  const realRun = median(pure);
+
+  // --- Exp B : « mur autour de l'await » (= gpuMs) + charge JS L injectée -----------------------
+  const loads = [0, 150, 300, 600, 900];
+  const expB = [];
+  for (const L of loads) {
+    live('Exp B : charge L=' + L + ' ms (la page se fige ~' + (L * 4 / 1000).toFixed(1) + 's)…'); await yield_();
+    let wall = 0; const reps = 4;
+    for (let i = 0; i < reps; i++) {
+      const t0 = performance.now();        // ← t0 (comme batched-evaluator.mjs:64)
+      const p = session.run(feeds());      //   GPU démarre (async)
+      busy(L);                             //   charge JS synchrone PENDANT la fenêtre de l'await
+      const o = await p;                   //   continuation retardée par la charge
+      readAndSoftmax(o);
+      wall += performance.now() - t0;      // ← gpuMs += now()-t0 (batched-evaluator.mjs:66)
+    }
+    expB.push({ L, wallAvg: wall / reps });
+  }
+  try { await session.release(); } catch { /* ok */ }
+
+  // ---- Synthèse -------------------------------------------------------------------------------
+  rep('');
+  rep('--- Exp A : session.run PUR @267 (sans charge JS) ---');
+  rep('  run (médiane)  : ' + f1(realRun) + ' ms   [' + pure.map(f1).join(', ') + ']');
+  rep('');
+  rep('--- Exp B : « ms/appel » (= mur autour de l\'await, batched-evaluator.mjs:64-66) + charge JS L ---');
+  rep('   L (ms) = charge JS synchrone simulant le MCTS chess.js pendant la fenêtre de l\'await');
+  rep('   ' + 'L injecté'.padEnd(12) + 'ms/appel mesuré');
+  for (const r of expB) rep('   ' + (String(r.L) + ' ms').padEnd(12) + f1(r.wallAvg) + ' ms');
+  rep('');
+  rep('--- VERDICT ---');
+  rep('observé en prod (UI) : ~629 ms/appel, GPU 100%');
+  const near = expB.reduce((best, r) => (Math.abs(r.wallAvg - 629) < Math.abs(best.wallAvg - 629) ? r : best));
+  rep('GPU réel (session.run) : ~' + f1(realRun) + ' ms — CONSTANT, indépendant de la charge JS.');
+  rep('À charge JS injectée ≈ ' + near.L + ' ms, le « ms/appel » mesuré = ' + f1(near.wallAvg) + ' ms ≈ les 629 ms de prod.');
+  if (realRun < 100 && expB.some((r) => r.wallAvg > 3 * realRun)) {
+    rep('');
+    rep('✅ CONFIRMÉ : `ms/appel` et `GPU%` du worker mesurent le TEMPS-MUR autour d\'un await mono-thread,');
+    rep('   donc ils ABSORBENT le temps JS. Le GPU réel reste ~' + f1(realRun) + ' ms ; les 629 ms = ~600 ms de');
+    rep('   MCTS JS (chess.js) par flush. → Le worker est JS-BOUND ; la métrique est trompeuse, pas le GPU.');
+    rep('   Corollaire : paliers/padding, retirer wasm = INUTILES. Vrais leviers = K Web Workers / chessops.');
+  } else {
+    rep('⚠️ Résultat inattendu — à interpréter (run réel pas ~30 ms, ou la charge n\'inflate pas le mur).');
+  }
+  rep('=============================================================================================');
+  finish();
+}
+
+$('run').addEventListener('click', () => { main().catch((e) => { live('FATAL : ' + e); rep('FATAL : ' + (e && e.stack || e)); finish(); }); });
+$('copy').addEventListener('click', async () => { try { await navigator.clipboard.writeText($('report').value); $('status').textContent = 'copié ✓'; } catch { $('report').select(); document.execCommand('copy'); } });
+$('baseUrl').value = location.origin;
+</script>
+</body>
+</html>

@@ -1,0 +1,18 @@
+<!DOCTYPE html>
+<html lang="fr"><head><meta charset="utf-8"><title>NanoZero — PoC worker (v2)</title>
+<style>body{font-family:system-ui;margin:2rem;background:#0b0e14;color:#cdd6f4}h1{color:#89b4fa}
+#out{white-space:pre-wrap;font-family:ui-monospace,monospace;background:#181825;padding:1rem;border-radius:8px;line-height:1.55;font-size:14px}
+.g{color:#a6e3a1}.r{color:#f38ba8}.b{color:#89b4fa;font-weight:bold}</style></head><body>
+<h1>🧠 NanoZero — inférence navigateur (gen-027) <small>v2 · Web Worker</small></h1>
+<p>Le calcul tourne dans un <b>Web Worker</b> → la page reste réactive (pas de freeze).</p>
+<div id="out">Démarrage du worker…
+</div>
+<script>
+const out=document.getElementById('out');
+const add=(t,c)=>{ out.innerHTML += (c?`<span class="${c}">${t}</span>`:t)+'\n'; window.scrollTo(0,document.body.scrollHeight); };
+try{
+  const w=new Worker('worker.js');
+  w.onmessage=(e)=>add(e.data.t, e.data.c);
+  w.onerror=(e)=>add('Erreur worker: '+(e.message||'(voir console F12)')+(e.filename?(' @'+e.filename+':'+e.lineno):''),'r');
+}catch(err){ add('Impossible de créer le Web Worker: '+err,'r'); }
+</script></body></html>

@@ -1,0 +1,7 @@
+# Cycle ponder hit : startPonder sur position avec moves + time control, puis ponderhit →
+# le budget pondéré (UNLIMITED) est remplacé par le budget réel calculé sur originalGoArgs
+# (movetime=500), bestmove arrive après ~500ms.
+> position startpos moves e2e4 e7e5
+> go ponder movetime 500
+> ponderhit
+< bestmove .*

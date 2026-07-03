@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NanoZero — Bench leaf-batching WebGPU</title>
+<!-- Bench A/B décisif : tourne le VRAI self-play (pool de parties, MCTS + WebGPU) à plusieurs
+     waveSize et mesure le débit pos/s réel. Tranche board-bound vs GPU-latency-bound.
+     Aucune soumission au jobserver. Charge ORT-Web webgpu (CDN) + le bundle des modules worker. -->
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.webgpu.min.js"></script>
+<script src="diag-wave-bundle.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  body { font: 14px/1.5 system-ui, sans-serif; margin: 0; padding: 1.2rem; background: #11141a; color: #e6e8ec; }
+  h1 { font-size: 1.15rem; margin: 0 0 .3rem; }
+  p.sub { color: #9aa3b2; margin: 0 0 1rem; }
+  button { font: inherit; padding: .55rem 1rem; border-radius: 8px; border: 1px solid #2c3340; background: #1b212c; color: #e6e8ec; cursor: pointer; }
+  button.primary { background: #2563eb; border-color: #2563eb; font-weight: 600; }
+  button:disabled { opacity: .5; cursor: default; }
+  .row { display: flex; gap: .8rem; align-items: center; flex-wrap: wrap; margin-bottom: .8rem; }
+  input[type=number] { width: 5rem; font: inherit; padding: .4rem; border-radius: 8px; border: 1px solid #2c3340; background: #0d1016; color: #e6e8ec; }
+  input[type=text] { font: inherit; padding: .5rem; border-radius: 8px; border: 1px solid #2c3340; background: #0d1016; color: #e6e8ec; min-width: 20rem; }
+  label.small { color: #9aa3b2; font-size: 12.5px; }
+  #live { white-space: pre-wrap; background: #0d1016; border: 1px solid #1f2630; border-radius: 8px; padding: .7rem; height: 12rem; overflow: auto; font-family: ui-monospace, monospace; font-size: 12.5px; margin: .8rem 0; }
+  table { border-collapse: collapse; margin-top: .5rem; font-family: ui-monospace, monospace; }
+  th, td { border: 1px solid #2c3340; padding: .4rem .8rem; text-align: right; }
+  th { background: #1b212c; }
+  #verdict { margin-top: 1rem; padding: .8rem; border-radius: 8px; background: #0d1016; border: 1px solid #1f2630; font-size: 13.5px; }
+  .ok { color: #5fcf80; } .warn { color: #f4b740; } .err { color: #ff6b6b; }
+</style>
+</head>
+<body>
+  <h1>NanoZero — Bench leaf-batching (WebGPU)</h1>
+  <p class="sub">Tourne le vrai self-play à plusieurs <code>waveSize</code> et mesure le <b>débit pos/s réel</b>. Décide : le batching aide-t-il (GPU-latency-bound) ou non (board-bound) ? Aucune soumission.</p>
+
+  <div class="row">
+    <label class="small">Serveur :</label>
+    <input id="baseUrl" type="text" placeholder="(défaut : cette origine — le jobserver via la gateway)">
+    <label class="small">ou modèle local :</label>
+    <input id="modelFile" type="file" accept=".onnx">
+  </div>
+  <div class="row">
+    <label class="small">pool <input id="pool" type="number" value="32" min="1" max="256"></label>
+    <label class="small">sims <input id="sims" type="number" value="200" min="16" max="1600"></label>
+    <label class="small">durée/run (s) <input id="dur" type="number" value="15" min="5" max="60"></label>
+    <label class="small">waveSizes <input id="waves" type="text" value="1,8,16" style="min-width:8rem"></label>
+  </div>
+  <div class="row">
+    <button id="run" class="primary">Lancer le bench</button>
+    <span id="status" class="small"></span>
+  </div>
+
+  <div id="live"></div>
+  <table id="tbl" hidden>
+    <thead><tr><th>waveSize</th><th>pos/s</th><th>avgBatch</th><th>positions</th><th>durée (s)</th></tr></thead>
+    <tbody></tbody>
+  </table>
+  <div id="verdict" hidden></div>
+
+<script type="module">
+const ort = window.ort;
+ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/';
+const $ = (id) => document.getElementById(id);
+const live = (m) => { $('live').textContent += m + '\n'; $('live').scrollTop = $('live').scrollHeight; };
+
+async function getModelBytes(baseUrl) {
+  const fi = $('modelFile');
+  if (fi.files && fi.files[0]) { live(`modèle local : ${fi.files[0].name}`); return new Uint8Array(await fi.files[0].arrayBuffer()); }
+  const base = (baseUrl || '').replace(/\/$/, '');
+  live('GET /models/current…');
+  const cur = await (await fetch(`${base}/models/current`)).json();
+  const v = cur.version ?? cur.current ?? cur.model_version;
+  live(`champion v${v}, download…`);
+  const buf = await (await fetch(`${base}/models/${v}/download`)).arrayBuffer();
+  return new Uint8Array(buf);
+}
+
+$('run').onclick = async () => {
+  $('run').disabled = true; $('status').textContent = ''; $('tbl').hidden = true; $('verdict').hidden = true;
+  $('tbl').querySelector('tbody').innerHTML = '';
+  try {
+    const bytes = await getModelBytes($('baseUrl').value.trim());
+    live(`modèle ${(bytes.length/1024/1024).toFixed(1)} Mo OK`);
+    const waveSizes = $('waves').value.split(',').map((s) => parseInt(s.trim(), 10)).filter((n) => n >= 1);
+    const res = await window.NZWAVE.runWaveBench(ort, bytes, {
+      poolSize: +$('pool').value, sims: +$('sims').value,
+      durationMs: (+$('dur').value) * 1000, waveSizes, log: live,
+    });
+    const tb = $('tbl').querySelector('tbody');
+    for (const r of res) tb.insertAdjacentHTML('beforeend',
+      `<tr><td>${r.waveSize}</td><td><b>${r.pps}</b></td><td>${r.avgBatch}</td><td>${r.positions}</td><td>${r.dt}</td></tr>`);
+    $('tbl').hidden = false;
+    const base1 = res.find((r) => r.waveSize === 1) || res[0];
+    const best = res.reduce((a, b) => (b.pps > a.pps ? b : a));
+    const gain = base1.pps ? ((best.pps / base1.pps - 1) * 100).toFixed(0) : '?';
+    let v;
+    if (best.pps > base1.pps * 1.15) v = `<span class="ok">✅ GPU-LATENCY-BOUND</span> : wave=${best.waveSize} = +${gain}% vs wave=1 (${base1.pps}→${best.pps} pos/s). Le batching AIDE → <b>activer wave=${best.waveSize}</b> (cheap), AVANT le board.`;
+    else v = `<span class="warn">⚠️ BOARD-BOUND</span> : wave>1 ≈ wave=1 (${base1.pps} vs ${best.pps} pos/s, +${gain}%). Le batching ne lève pas le plafond → seul le <b>board #4</b> (chessops make/unmake) exploite le GPU.`;
+    $('verdict').innerHTML = `<b>Verdict :</b> ${v}`;
+    $('verdict').hidden = false;
+    $('status').textContent = 'terminé';
+  } catch (e) {
+    live(`ERREUR : ${e.message || e}`);
+    $('status').innerHTML = `<span class="err">échec — voir le log</span>`;
+  } finally { $('run').disabled = false; }
+};
+live('prêt. Règle pool/sims/waveSizes puis « Lancer ». Le modèle vient du jobserver (gateway) ou d\'un fichier local.');
+</script>
+</body>
+</html>

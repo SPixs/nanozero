@@ -1,0 +1,70 @@
+# Example run configuration — annotated for user customization.
+#
+# Usage:
+#   cp configs/example-run.yaml my-run.yaml
+#   edit my-run.yaml (notably eval.uci_jar, paths.run_root, paths.uci_jar)
+#   poetry run nanozero-training run --config my-run.yaml
+
+# === Run scope ===
+max_generations: 5         # stop after 5 generations (testing). Production: 50-100.
+run_id: ""                 # auto-generated UUID if empty
+
+# === Self-play hyperparameters (SPEC §4 + §6) ===
+selfplay:
+  mcts_sims: 400           # simulations per move. Lower = faster, weaker.
+  temperature: 1.0         # softmax temperature for plies < temperature_switch_ply
+  temperature_switch_ply: 30  # after this ply, switch to argmax
+  dirichlet_alpha: 300     # alpha x 1000 (UCI hidden option format)
+  dirichlet_epsilon: 250   # epsilon x 1000
+  go_timeout_seconds: 60.0 # max wall-clock for one `go nodes` (safety)
+  worker_seed: 42          # RNG seed for Dirichlet + temperature sampling
+  max_game_plies: 400      # cutoff (draw if reached)
+  games_per_batch: 250     # games per .npz batch file
+  target_games_per_gen: 500   # target games per generation
+  worker_restart_every: 1000  # restart UCI subprocess every N games
+  max_consecutive_crashes: 5  # abort generation after N crashes
+
+# === Training hyperparameters (SPEC §4 + §8) ===
+train:
+  batch_size: 256
+  learning_rate: 0.001
+  total_epochs: 10
+  l2_reg: 0.0001
+  replay_window: 10        # number of past generations in replay buffer
+  num_workers: 4           # DataLoader workers
+  shuffle: true
+  pin_memory: true         # set false if no GPU
+  max_grad_norm: 10000.0   # Lc0-style: very permissive (safety net)
+  use_cosine_schedule: true
+  train_seed: 42
+
+# === SPRT evaluation (SPEC §4 + §9, ADR-005) ===
+eval:
+  fastchess_path: "fastchess"   # binary in PATH or absolute path
+  uci_jar: "/path/to/nanozero-uci-1.2.0.jar"  # MUST set
+  elo_low: 0.0             # SPRT H0 elo bound
+  elo_high: 5.0            # SPRT H1 elo bound (require >= +5 Elo to promote)
+  alpha: 0.05              # type-I error rate
+  beta: 0.05               # type-II error rate
+  max_games: 2000          # cap on games per SPRT
+  time_control: "10+0.1"   # 10s base + 0.1s/move increment
+  concurrency: 4           # parallel games (4 cores recommended)
+  poll_interval_seconds: 5.0  # phase 10 : SPRT dashboard reactivity
+
+# === Monitoring (phase 10 wiring) ===
+monitor:
+  enabled: true
+  port: 5000
+  host: "127.0.0.1"
+  csv_flush_interval_seconds: 60.0
+  sse_poll_interval_seconds: 0.5  # SSE mtime poll (lower = more reactive, 0.5 OK for ~10 clients)
+
+# === Paths (filesystem layout) ===
+paths:
+  run_root: "/data/nano-runs/run-001"  # absolute path recommended
+  datasets_dir: "datasets"
+  models_dir: "models"
+  monitoring_dir: "monitoring"
+  versions_yaml: "versions.yaml"
+  pgn_path: "monitoring/sprt.pgn"
+  uci_jar: "/path/to/nanozero-uci-1.2.0.jar"  # MUST match eval.uci_jar

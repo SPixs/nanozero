@@ -1,0 +1,60 @@
+# ============================================================================
+# Gateway de TEST LAN/tailnet — sert la page volontaire ui/ ET proxifie le jobserver
+# sur UNE SEULE origine (→ pas de CORS) + HTTPS (→ contexte sécurisé requis par WebGPU).
+# Usage TEST uniquement (pas le go-live : pas d'allowlist/cap, cf Caddyfile.public pour le public).
+#
+# Prérequis : bundler le Web Worker AVANT :
+#   cd nanozero-browser-worker
+#   worker/node_modules/.bin/esbuild ui/worker-entry.mjs --bundle --format=iife --outfile=ui/worker.bundle.js
+#
+# Lancer (depuis nanozero-browser-worker/) — sourcer d'abord les secrets (ADMIN_HASH, basic_auth admin) :
+#   set -a; . {env.HOME}/.config/nanozero/caddy.secrets.env; set +a
+#   {env.HOME}/caddy run --config deploy/Caddyfile.test --adapter caddyfile
+#
+# Puis, dans la page (champ « Serveur »), saisir l'URL D'ORIGINE de la page elle-même
+# (ex. https://<IP_LOCALE>:8099) → claim/submit/model sont proxifiés en même origine.
+# ============================================================================
+
+{
+	admin off
+}
+
+# --- DÉFAUT = chemin B (RECOMMANDÉ) : HTTP local, exposé par tailscale serve (cert de confiance) ---
+#   tailscale serve --bg --https=443 http://localhost:8099
+#   → page joignable sur https://<nom-devsrv>.<tailnet>.ts.net depuis TOUTE machine du tailnet.
+#   (status : `tailscale serve status` ; arrêt : `tailscale serve --https=443 off`)
+:8099 {
+	# --- Alternative A (LAN-only, sans tailscale) : remplacer la ligne `:8099 {` ci-dessus par
+	#     `<IP_LOCALE>:8099 {` et DÉ-commenter `tls internal` ci-dessous (HTTPS auto-signé,
+	#     le navigateur avertit 1× → Avancé → continuer). L'adresse doit être l'IP d'accès.
+	# tls internal
+
+	# Espace admin (STORY-012) : la page admin + les endpoints ops (/stats/selfplay, /stats/browser)
+	# sont le SEUL surface authentifié (DECISIONS §10). basic_auth devant ; /stats/season reste PUBLIC.
+	# Hash bcrypt via l'env ADMIN_HASH (HORS dépôt : ~/.config/nanozero/caddy.secrets.env), substitué
+	# à la lecture du Caddyfile → sourcer ce fichier avant de lancer (cf. en-tête « Lancer »).
+	@protected path /admin.html /admin.mjs /stats/selfplay /stats/browser
+	basic_auth @protected {
+		admin {$ADMIN_HASH}
+	}
+
+	# API jobserver — MÊME ORIGINE que la page (pas de CORS). Seules les routes nécessaires.
+	# /stats/season public (jauge volontaire) ; /stats/selfplay + /stats/browser ops (protégés ci-dessus).
+	@api path /jobs/* /models/* /stats/season /stats/selfplay /stats/browser
+	handle @api {
+		reverse_proxy 127.0.0.1:8090
+	}
+
+	# La page volontaire (statique) : index.html + app.mjs + worker.bundle.js + modules ui/.
+	handle {
+		root * {env.HOME}/dev/nanozero/nanozero-browser-worker/ui
+		# no-store : en itération, évite que le navigateur resserve un vieux bundle/app.mjs.
+		header Cache-Control "no-store"
+		# STORY-013 (CPU multi-thread) : isolation cross-origin → crossOriginIsolated=true → SharedArrayBuffer
+		# → ORT-Web WASM utilise PLUSIEURS cœurs (au lieu d'1). COEP=credentialless (pas require-corp) pour
+		# NE PAS casser le CDN ORT (jsdelivr) ni Google Fonts (cross-origin) : ils se chargent sans credentials.
+		header Cross-Origin-Opener-Policy "same-origin"
+		header Cross-Origin-Embedder-Policy "credentialless"
+		file_server
+	}
+}

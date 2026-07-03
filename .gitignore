@@ -1,0 +1,57 @@
+# Maven
+target/
+*.class
+*.jar
+*.war
+.mvn/wrapper/maven-wrapper.jar
+
+# IntelliJ
+.idea/
+*.iml
+*.ipr
+*.iws
+
+# Eclipse / VS Code
+.vscode/
+.settings/
+.project
+.classpath
+.factorypath
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs JVM
+*.log
+hs_err_pid*.log
+replay_pid*.log
+
+# Bench / Coverage
+jmh-result.json
+jmh-result.csv
+jacoco.exec
+
+# Python (scripts annexes dans modules Java + tooling)
+__pycache__/
+*.py[cod]
+
+# Tooling local (fastchess config dev)
+/config.json
+
+# Données / artefacts lourds — JAMAIS committer (cf. corruption SQLite live)
+nanozero-jobserver/jobserver.db
+nanozero-jobserver/jobserver.db-wal
+nanozero-jobserver/jobserver.db-shm
+nanozero-jobserver/datasets/
+models-eval/
+openings/
+
+# temp réutilisable non-commité (persiste au reboot) — cf. memory project-local-tmp-dir
+/tmp/
+
+# Artefacts d'exécution (jamais committer)
+w3090-validation-deploy-output/
+about-gpu-*.txt
+
+

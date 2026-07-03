@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>nanozero-training dashboard</title>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+  <link rel="stylesheet" href="{{ url_for('static', filename='dashboard.css') }}">
+</head>
+<body>
+  <header>
+    <h1>nanozero-training</h1>
+    <div id="run-summary">
+      <span id="run-id">Loading…</span>
+      <span id="run-status" class="badge">-</span>
+      <span id="run-phase" class="badge">-</span>
+      <span id="run-gen" class="badge">-</span>
+    </div>
+  </header>
+
+  <main class="grid-2x2">
+    <!-- Card 1: Self-play distribué (jobserver) -->
+    <section class="card">
+      <h2>Self-play distribué</h2>
+      <div class="progress-bar"><div id="jobs-bar" class="progress-fill"></div></div>
+      <div id="jobs-text" class="big">— / — jobs</div>
+      <table class="kv">
+        <tr><td>workers actifs</td><td id="js-workers">—</td></tr>
+        <tr><td>débit (60s)</td><td id="js-rate">— jobs/min</td></tr>
+        <tr><td>ETA</td><td id="js-eta">—</td></tr>
+        <tr><td>positions</td><td id="js-positions">—</td></tr>
+        <tr><td>modèle courant</td><td id="js-current-model">—</td></tr>
+      </table>
+    </section>
+
+    <!-- Card 2: Training -->
+    <section class="card">
+      <h2>Training</h2>
+      <div class="progress-bar"><div id="train-bar" class="progress-fill"></div></div>
+      <div id="train-text" class="big">epoch — / —</div>
+      <div class="chart-wrap"><canvas id="loss-chart"></canvas></div>
+    </section>
+
+    <!-- Card 3: SPRT eval -->
+    <section class="card">
+      <h2>SPRT eval</h2>
+      <table class="kv">
+        <tr><td>challenger</td><td id="eval-challenger">—</td></tr>
+        <tr><td>baseline</td><td id="eval-baseline">—</td></tr>
+        <tr><td>games</td><td id="eval-games">—</td></tr>
+        <tr><td>décision</td><td id="eval-decision" class="decision">—</td></tr>
+      </table>
+      <div class="chart-wrap"><canvas id="sprt-chart"></canvas></div>
+    </section>
+
+    <!-- Card 4: Versions récentes -->
+    <section class="card">
+      <h2>Versions récentes</h2>
+      <table id="versions-table">
+        <thead>
+          <tr><th>Name</th><th>Type</th><th>Promu</th><th>SPRT</th></tr>
+        </thead>
+        <tbody id="versions-tbody"></tbody>
+      </table>
+    </section>
+  </main>
+
+  <script src="{{ url_for('static', filename='dashboard.js') }}"></script>
+</body>
+</html>

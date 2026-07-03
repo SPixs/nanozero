@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Jouer contre Nano — NanoZero</title>
+  <meta name="description" content="Joue aux échecs contre NanoZero, le moteur AlphaZero entraîné par la communauté, directement dans ton navigateur. Aucune installation.">
+  <link rel="canonical" href="https://nanozero.org/play/">
+  <meta property="og:type" content="website">
+  <meta property="og:url" content="https://nanozero.org/play/">
+  <meta property="og:site_name" content="NanoZero">
+  <meta property="og:locale" content="fr_FR">
+  <meta property="og:title" content="Jouer contre Nano — NanoZero">
+  <meta property="og:description" content="Affronte NanoZero, moteur d'échecs AlphaZero entraîné en pur self-play, directement dans ton navigateur.">
+  <meta property="og:image" content="https://nanozero.org/assets/og-card.jpg">
+  <meta property="og:image:type" content="image/jpeg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Jouer contre Nano — NanoZero">
+  <meta name="twitter:image" content="https://nanozero.org/assets/og-card.jpg">
+  <link rel="stylesheet" href="/assets/fonts/fonts.css">
+  <style>
+    :root{
+      --bg:#0B0F16; --surface:#1A1F2B; --surface-hi:#242938; --line:#31384A;
+      --text:#F5F7FA; --muted:#AAB3C7; --gold:#c9a96e; --gold-dim:rgba(201,169,110,.55);
+      --mint:#7EDC9A; --blue:#6EA8FF;
+      --board-dark:#9c7234; --board-light:#f3e2c0;
+      --nz-last:rgba(201,169,110,.50); --nz-sel:rgba(201,169,110,.62);
+      --nz-dot:rgba(43,30,10,.34); --nz-check:rgba(220,54,54,.92);
+      --font-disp:"Space Grotesk",system-ui,sans-serif; --font-body:Inter,system-ui,sans-serif;
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;}
+    body{background:var(--bg) radial-gradient(circle at 1px 1px,rgba(49,56,74,.22) 1px,transparent 0) 0 0/30px 30px;
+      color:var(--text);font-family:var(--font-body);min-height:100dvh;-webkit-font-smoothing:antialiased;}
+    body::before{content:'';position:fixed;inset:0;z-index:-1;pointer-events:none;
+      background:radial-gradient(ellipse 70% 45% at 50% -8%,rgba(201,169,110,.08),transparent 60%);}
+    .screen{min-height:100dvh;display:flex;flex-direction:column;}
+    [hidden]{display:none!important;}
+    h1{font-family:var(--font-disp);font-size:clamp(1.5rem,5vw,2rem);font-weight:700;letter-spacing:-.025em;}
+    h1 .accent{color:var(--gold);}
+    /* Retour accueil = logo-home (emblème de marque, convention universelle ; PAS de flèche
+       collée au nom de marque qui mélangeait navigation et identité). Chrome de site, coin haut-gauche. */
+    .play-home{position:absolute;top:16px;left:18px;display:inline-flex;align-items:center;gap:.5rem;
+      text-decoration:none;padding:.32rem .56rem .32rem .34rem;border-radius:11px;border:1px solid transparent;
+      transition:background .15s,border-color .15s;}
+    .play-home:hover{background:rgba(255,255,255,.045);border-color:var(--line);}
+    .play-home-mark{width:30px;height:30px;border-radius:7px;display:block;box-shadow:0 0 0 1px var(--line);}
+    .play-home-name{font-family:var(--font-disp);font-weight:600;font-size:.95rem;color:var(--text);}
+
+    /* ---- Écran config ---- */
+    #config{position:relative;align-items:center;justify-content:center;gap:1rem;padding:2rem 1.5rem;text-align:center;}
+    .demo-badge{display:inline-block;font-family:var(--font-disp);font-size:.66rem;font-weight:600;
+      letter-spacing:.1em;text-transform:uppercase;padding:3px 10px;border-radius:999px;color:var(--gold);
+      background:rgba(201,169,110,.1);border:1px solid rgba(201,169,110,.25);}
+    .play-sub{color:var(--muted);font-size:.92rem;margin-top:-.35rem;}
+    .config-card{background:linear-gradient(180deg,var(--surface),#161b25);border:1px solid var(--line);
+      border-radius:16px;padding:1.6rem 1.5rem;width:min(100%,480px);display:flex;flex-direction:column;
+      gap:1.4rem;text-align:left;margin-top:.4rem;
+      box-shadow:inset 0 1px 0 rgba(255,255,255,.04),0 18px 50px rgba(0,0,0,.45);}
+    fieldset{border:0;padding:0;display:flex;flex-direction:column;gap:.55rem;}
+    legend{font-family:var(--font-disp);font-weight:500;font-size:.8rem;
+      letter-spacing:.06em;text-transform:uppercase;color:var(--muted);}
+    .opts{display:flex;gap:.5rem;flex-wrap:wrap;}
+    .opt{flex:1 1 0;min-width:78px;cursor:pointer;display:block;position:relative;}
+    .opt input{position:absolute;opacity:0;width:0;height:0;}
+    .opt .box{position:relative;display:flex;flex-direction:column;align-items:center;gap:.45rem;height:100%;
+      border:1px solid var(--line);border-radius:12px;padding:.8rem .55rem;background:var(--surface-hi);text-align:center;
+      transition:border-color .15s,background .15s,transform .15s,box-shadow .15s;}
+    .opt .box .ic{display:flex;align-items:center;justify-content:center;height:42px;}
+    .opt .box .ic.tile{width:42px;height:42px;border-radius:8px;box-shadow:inset 0 0 0 1px rgba(0,0,0,.25),0 1px 3px rgba(0,0,0,.4);}
+    .opt .box .ic.tile img{width:33px;height:33px;display:block;filter:drop-shadow(0 1px 1px rgba(0,0,0,.45));}
+    .tile--light{background:var(--board-light);}
+    .tile--dark{background:var(--board-dark);}
+    .tile--rand{background:linear-gradient(135deg,var(--board-light) 0 50%,var(--board-dark) 50% 100%);}
+    .opt .box .ic.badge{width:42px;height:42px;border-radius:50%;background:rgba(255,255,255,.04);
+      border:1px solid var(--line);transition:border-color .15s,transform .15s,box-shadow .15s;}
+    .opt .box .ic.badge svg{width:22px;height:22px;}
+    .ic[data-accent="mint"]{color:var(--mint);}
+    .ic[data-accent="gold"]{color:var(--gold);}
+    .ic[data-accent="coral"]{color:#e5816a;}
+    .opt input:checked + .box .ic.badge{border-color:currentColor;transform:scale(1.05);
+      box-shadow:0 0 12px -2px currentColor;}
+    .opt .box .t{display:block;font-weight:600;font-size:.9rem;line-height:1.15;}
+    .opt .box .d{display:block;font-size:.71rem;color:var(--muted);line-height:1.25;}
+    .opt .box .elo{display:block;margin-top:.25rem;font-size:.7rem;font-weight:600;color:var(--gold);font-variant-numeric:tabular-nums;}
+    .opt:hover .box{border-color:var(--gold-dim);transform:translateY(-2px);box-shadow:0 6px 18px rgba(0,0,0,.3);}
+    .opt input:checked + .box{border-color:var(--gold);background:rgba(201,169,110,.12);
+      box-shadow:inset 0 0 0 1px var(--gold),0 6px 20px rgba(201,169,110,.12);}
+    .opt input:checked + .box::after{content:'';position:absolute;top:8px;right:8px;width:7px;height:7px;
+      border-radius:50%;background:var(--gold);box-shadow:0 0 0 3px rgba(201,169,110,.2);}
+    .opt input:focus-visible + .box{outline:2px solid var(--gold);outline-offset:2px;}
+    #start-btn{display:flex;align-items:center;justify-content:center;gap:.5rem;font-family:var(--font-disp);
+      font-weight:700;font-size:1.05rem;color:#0B0F16;background:var(--mint);border:0;border-radius:12px;
+      padding:.9rem;cursor:pointer;transition:transform .12s,filter .12s;}
+    #start-btn svg{width:18px;height:18px;}
+    #start-btn:hover{filter:brightness(1.06);transform:translateY(-1px);}
+    #start-btn:active{transform:translateY(0);}
+    #start-btn:disabled{opacity:.55;cursor:progress;transform:none;}
+    #load-status{font-size:.8rem;color:var(--muted);text-align:center;min-height:1.1em;}
+
+    /* ---- Écran jeu ---- */
+    #game{padding:.75rem 1rem 1rem;gap:.75rem;}
+    .game-top{display:flex;align-items:center;justify-content:space-between;gap:.6rem 1rem;flex-wrap:wrap;}
+    .game-top .lvl{font-family:var(--font-disp);font-weight:600;color:var(--gold);}
+    .game-top-actions{display:flex;gap:.5rem;flex-wrap:wrap;}
+    .btn-ghost.copied{color:var(--mint);border-color:rgba(126,220,154,.5);}
+    .btn-ghost{font-family:var(--font-disp);font-size:.8rem;color:var(--muted);background:transparent;
+      border:1px solid var(--line);border-radius:8px;padding:.4rem .7rem;cursor:pointer;}
+    .btn-ghost:hover{color:var(--text);border-color:var(--gold);}
+    .game-layout{flex:1;min-height:0;display:grid;gap:1rem;grid-template-columns:1fr;align-items:start;justify-items:center;}
+    @media (min-width:860px){.game-layout{grid-template-columns:1fr minmax(220px,260px);}}
+    .board-area{flex:1;min-height:0;width:100%;display:grid;place-items:center;grid-column:1;}
+    .board-wrap{aspect-ratio:1/1;width:min(calc(100vw - 2rem),560px);max-width:min(100%,560px);min-width:0;}
+    #board{border-radius:6px;overflow:hidden;box-shadow:0 2px 0 rgba(201,169,110,.18),0 12px 40px rgba(0,0,0,.55);}
+    .sidebar{width:100%;max-width:560px;display:flex;flex-direction:column;gap:.75rem;}
+    @media (min-width:860px){.sidebar{grid-column:2;max-width:none;}}
+    .badge{align-self:flex-start;font-family:var(--font-disp);font-weight:600;font-size:.82rem;
+      padding:.35rem .7rem;border-radius:999px;border:1px solid var(--line);background:var(--surface);min-height:1.6rem;}
+    .badge .exp{color:var(--muted);font-weight:400;font-size:.72rem;}
+    .badge[data-level="calm"]{border-color:rgba(126,220,154,.4);}
+    .badge[data-level="tense"]{border-color:rgba(201,169,110,.5);}
+    .badge[data-level="sharp"]{border-color:rgba(220,90,90,.55);}
+    .thinking{font-size:.82rem;color:var(--muted);display:flex;flex-direction:column;gap:.35rem;}
+    .thinking .bar{height:6px;background:var(--surface-hi);border-radius:99px;overflow:hidden;}
+    .thinking .bar i{display:block;height:100%;width:0;background:var(--gold);transition:width .12s linear;}
+    .move-list{list-style:none;display:grid;grid-template-columns:auto 1fr 1fr;gap:.1rem .6rem;font-size:.85rem;
+      max-height:260px;overflow-y:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:.6rem .8rem;}
+    .move-list .num{color:var(--muted);}
+    .move-list:empty{display:none;}
+    /* ---- Mode visualiseur (B2/B3) ---- */
+    .move-list .vmove{cursor:pointer;padding:.05rem .3rem;border-radius:5px;}
+    .move-list .vmove:hover{background:var(--surface-hi);}
+    .move-list .vmove.active{background:rgba(201,169,110,.18);color:var(--gold);font-weight:600;}
+    .viewer-panel{display:flex;flex-direction:column;gap:.6rem;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:.8rem;}
+    .vps-title{font-family:var(--font-disp);font-weight:700;font-size:1.05rem;line-height:1.2;}
+    .vps-sub{font-size:.8rem;color:var(--muted);margin-top:.2rem;}
+    .vp-nav{display:flex;gap:.4rem;}
+    .vnav{flex:1;display:flex;align-items:center;justify-content:center;background:var(--surface-hi);
+      border:1px solid var(--line);border-radius:8px;padding:.42rem;color:var(--text);cursor:pointer;transition:border-color .15s;}
+    .vnav:hover:not(:disabled){border-color:var(--gold);}
+    .vnav:disabled{opacity:.4;cursor:default;}
+    .vnav svg{width:18px;height:18px;}
+    .vp-actions{display:flex;flex-direction:column;gap:.5rem;}
+    .vp-actions .r-btn{text-align:center;text-decoration:none;}
+    .vp-legal{font-size:.72rem;color:var(--muted);text-align:center;margin:0;}
+    .vp-legal a{color:var(--muted);}
+    /* mention transparence en fin de partie (B4) */
+    .r-legal{font-size:.72rem;color:var(--muted);margin-top:.7rem;}
+    .r-legal a{color:var(--muted);}
+    .result{background:var(--surface);border:1px solid var(--gold);border-radius:10px;padding:1rem;text-align:center;}
+    .result .r{font-family:var(--font-disp);font-weight:700;font-size:1.1rem;line-height:1.25;}
+    .result .r-sub{font-size:.82rem;color:var(--muted);margin-top:.3rem;}
+    .result .r-actions{display:flex;flex-direction:column;gap:.5rem;margin-top:.95rem;}
+    .r-btn{font-family:var(--font-disp);font-weight:600;font-size:.9rem;border-radius:9px;padding:.62rem .8rem;
+      cursor:pointer;border:1px solid var(--line);background:var(--surface-hi);color:var(--text);
+      transition:border-color .15s,background .15s,transform .12s,filter .12s;}
+    .r-btn:hover{border-color:var(--gold);transform:translateY(-1px);}
+    .r-btn--primary{background:var(--mint);color:#0B0F16;border-color:transparent;font-weight:700;}
+    .r-btn--primary:hover{filter:brightness(1.06);}
+    .r-btn--soon{background:transparent;color:var(--muted);cursor:not-allowed;opacity:.6;}
+    .r-btn--soon:hover{border-color:var(--line);transform:none;}
+    :focus-visible{outline:2px solid var(--gold);outline-offset:3px;border-radius:4px;}
+    @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;}}
+  </style>
+</head>
+<body>
+  <!-- ÉCRAN CONFIG (J1) -->
+  <div id="config" class="screen">
+    <a class="play-home" href="/" aria-label="NanoZero — retour à l'accueil">
+      <img class="play-home-mark" src="/assets/logo/favicons/icon-64.png" alt="">
+      <span class="play-home-name">NanoZero</span>
+    </a>
+    <div class="demo-badge">Aperçu</div>
+    <h1>Jouer contre <span class="accent">Nano</span></h1>
+    <p class="play-sub">Choisis ton camp, puis ton niveau.</p>
+    <form class="config-card" id="config-form">
+      <fieldset>
+        <legend>Couleur</legend>
+        <div class="opts" id="color-opts">
+          <label class="opt"><input type="radio" name="color" value="white"><span class="box"><span class="ic tile tile--light"><img src="/pieces/wK.svg" alt="" draggable="false"></span><span class="t">Blancs</span></span></label>
+          <label class="opt"><input type="radio" name="color" value="black"><span class="box"><span class="ic tile tile--dark"><img src="/pieces/bK.svg" alt="" draggable="false"></span><span class="t">Noirs</span></span></label>
+          <label class="opt"><input type="radio" name="color" value="random" checked><span class="box"><span class="ic tile tile--rand" aria-hidden="true"></span><span class="t">Aléatoire</span></span></label>
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>Niveau</legend>
+        <div class="opts" id="level-opts"><!-- rempli depuis STRENGTH_LEVELS --></div>
+      </fieldset>
+      <button type="submit" id="start-btn">
+        <svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><polygon points="6 3 20 12 6 21 6 3"/></svg>
+        Lancer la partie
+      </button>
+      <p id="load-status" aria-live="polite"></p>
+    </form>
+  </div>
+
+  <!-- ÉCRAN JEU (J2) -->
+  <div id="game" class="screen" hidden>
+    <div class="game-top">
+      <span class="lvl" id="level-name"></span>
+      <div class="game-top-actions">
+        <button class="btn-ghost" id="share-link">Copier le lien</button>
+        <button class="btn-ghost" id="new-game">Nouvelle partie</button>
+      </div>
+    </div>
+    <div class="game-layout">
+      <div class="board-area"><div class="board-wrap"><div id="board"></div></div></div>
+      <aside class="sidebar">
+        <div class="badge" id="badge" hidden></div>
+        <div class="thinking" id="thinking" hidden>
+          <span>NanoZero réfléchit…</span>
+          <div class="bar"><i id="bar-fill"></i></div>
+        </div>
+        <div class="result" id="result" hidden></div>
+        <!-- Panneau VISUALISEUR (B2/B3) — affiché seulement via /play/?game=<id> -->
+        <div class="viewer-panel" id="viewer-panel" hidden>
+          <div class="vp-summary" id="vp-summary"></div>
+          <div class="vp-nav">
+            <button class="vnav" id="v-first" aria-label="Début"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="19 20 9 12 19 4 19 20"/><line x1="5" y1="19" x2="5" y2="5"/></svg></button>
+            <button class="vnav" id="v-prev" aria-label="Précédent"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="15 18 9 12 15 6"/></svg></button>
+            <button class="vnav" id="v-next" aria-label="Suivant"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="9 18 15 12 9 6"/></svg></button>
+            <button class="vnav" id="v-last" aria-label="Fin"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polygon points="5 4 15 12 5 20 5 4"/><line x1="19" y1="5" x2="19" y2="19"/></svg></button>
+          </div>
+          <div class="vp-actions">
+            <a class="r-btn r-btn--primary" id="v-analyse">Analyser cette partie</a>
+            <a class="r-btn" id="v-play" href="/play/">Jouer une partie</a>
+          </div>
+          <p class="vp-legal">Partie sauvegardée anonymement · <a href="/mentions-legales/">en savoir plus</a></p>
+        </div>
+        <ol class="move-list" id="move-list"></ol>
+      </aside>
+    </div>
+  </div>
+
+  <script type="module" src="dist/app.bundle.js"></script>
+
+<style>
+  .site-footer{display:flex;gap:.7rem;justify-content:center;align-items:center;flex-wrap:wrap;
+    margin:2.6rem auto 1.2rem;padding:0 1rem;font-size:.78rem;color:var(--muted);}
+  .site-footer a{color:var(--muted);text-decoration:none;transition:color .15s;}
+  .site-footer a:hover{color:var(--text);}
+  .site-footer .sep{opacity:.5;}
+</style>
+<footer class="site-footer">
+  <a href="/">Accueil</a><span class="sep" aria-hidden="true">·</span>
+  <a href="/play/">Jouer</a><span class="sep" aria-hidden="true">·</span>
+  <a href="/analyse/">Analyser</a><span class="sep" aria-hidden="true">·</span>
+  <a href="/worker/">Contribuer</a><span class="sep" aria-hidden="true">·</span>
+  <a href="/mentions-legales/">Mentions légales</a>
+</footer>
+</body>
+</html>

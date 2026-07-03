@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Spike latence moteur — NanoZero (F4)</title>
+  <style>
+    body { font-family: system-ui, sans-serif; margin: 0; padding: 1.5rem; background: #111; color: #eee; }
+    main { max-width: 760px; margin: 0 auto; }
+    h1 { font-size: 1.2rem; }
+    label { display: inline-block; margin: .3rem .8rem .3rem 0; }
+    input[type=text] { width: 22rem; }
+    button { padding: .5rem 1rem; cursor: pointer; }
+    #out { white-space: pre; background: #000; color: #9f9; padding: 1rem; margin-top: 1rem; border-radius: .4rem; font-family: ui-monospace, monospace; font-size: .85rem; overflow-x: auto; }
+    .hint { color: #aaa; font-size: .85rem; }
+  </style>
+  <!-- ORT-Web (WebGPU + repli WASM) depuis le CDN, comme le worker de contribution. -->
+  <script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.webgpu.min.js"></script>
+  <script>
+    if (window.ort) window.ort.env.wasm.wasmPaths = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/';
+  </script>
+</head>
+<body>
+  <main>
+    <h1>Spike latence moteur in-browser (F4)</h1>
+    <p class="hint">Mesure la latence du <b>1er coup</b> de Nano (startpos) à sims ∈ {50,100,200,400,800}.
+       But : fixer les niveaux Tranquille / Club / Pleine force (J1). Lance sur desktop ET mobile.
+       ⚠️ WebGPU exige un contexte sécurisé (HTTPS ou localhost).</p>
+    <div>
+      <label>Backend :
+        <input type="checkbox" id="bgpu" checked> WebGPU
+        <input type="checkbox" id="bwasm" checked> WASM-CPU
+      </label>
+    </div>
+    <div>
+      <label>API jobserver : <input type="text" id="apiBase" value="https://nanozero.org/api/v1"></label>
+    </div>
+    <div>
+      <label>…ou modèle local (.onnx) : <input type="file" id="modelFile" accept=".onnx"></label>
+      <p class="hint">Si servi sur nanozero.org : laisse l'API (même origine). Sinon, charge un .onnx local pour éviter le CORS.</p>
+    </div>
+    <button id="runBtn">Lancer le bench</button>
+    <div id="out"></div>
+  </main>
+  <script type="module" src="dist/probe.bundle.js"></script>
+</body>
+</html>

@@ -1,0 +1,6 @@
+{
+  "version": 1,
+  "champion_gen": 31,
+  "beta_thresholds": { "calm": 0.10, "tense": 0.25 },
+  "_note": "Placeholder NON calibré ML (gate AUC>=0.70 non passé). Tant que version < 2, le badge de complexité est affiché avec la mention « indicateur expérimental » (cf. STORY J2). version >= 2 = calibration validée (seuils issus du pipeline Lichess), mention retirée. Servi en statique par Caddy sous /calibration/."
+}

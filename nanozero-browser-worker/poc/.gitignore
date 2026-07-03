@@ -1,0 +1,5 @@
+# Ne JAMAIS committer les modèles (proprios + volumineux)
+*.onnx
+*.npz
+*.pt
+server.log

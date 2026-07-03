@@ -1,0 +1,263 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NanoZero — Diagnostic inférence WebGPU/WASM</title>
+<!-- Page de DIAGNOSTIC jetable (pas de build, pas de Web Worker). Charge ORT-Web (build webgpu)
+     depuis le CDN — IDENTIQUE à worker-entry.mjs. Objectif : trancher entre repli WASM/CPU,
+     partition d'op, read-back, et recompile-par-forme, en comparant 3 listes d'executionProviders
+     au MÊME modèle, aux MÊMES tailles de batch. Sert-la depuis la MÊME origine que la page
+     volontaire (la gateway proxifie /models/*). Ouvre .../diag.html, clique « Lancer », colle le rapport. -->
+<script src="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/ort.webgpu.min.js"></script>
+<style>
+  :root { color-scheme: dark; }
+  body { font: 14px/1.5 system-ui, sans-serif; margin: 0; padding: 1.2rem; background: #11141a; color: #e6e8ec; }
+  h1 { font-size: 1.15rem; margin: 0 0 .3rem; }
+  p.sub { color: #9aa3b2; margin: 0 0 1rem; }
+  button { font: inherit; padding: .55rem 1rem; border-radius: 8px; border: 1px solid #2c3340; background: #1b212c; color: #e6e8ec; cursor: pointer; }
+  button.primary { background: #2563eb; border-color: #2563eb; font-weight: 600; }
+  button:disabled { opacity: .5; cursor: default; }
+  .row { display: flex; gap: .6rem; align-items: center; flex-wrap: wrap; margin-bottom: .8rem; }
+  input[type=text] { font: inherit; padding: .5rem; border-radius: 8px; border: 1px solid #2c3340; background: #0d1016; color: #e6e8ec; min-width: 22rem; }
+  #live { white-space: pre-wrap; background: #0d1016; border: 1px solid #1f2630; border-radius: 8px; padding: .7rem; height: 11rem; overflow: auto; font-family: ui-monospace, monospace; font-size: 12.5px; margin-bottom: .8rem; }
+  textarea { width: 100%; height: 24rem; box-sizing: border-box; background: #0d1016; color: #cfe3d0; border: 1px solid #1f2630; border-radius: 8px; padding: .7rem; font-family: ui-monospace, monospace; font-size: 12.5px; }
+  label.small { color: #9aa3b2; font-size: 12.5px; }
+  .warn { color: #f4b740; }
+  .ok { color: #5fcf80; }
+  .err { color: #ff6b6b; }
+</style>
+</head>
+<body>
+  <h1>NanoZero — Diagnostic inférence WebGPU vs WASM</h1>
+  <p class="sub">Compare <code>['webgpu']</code> · <code>['webgpu','wasm']</code> (config prod) · <code>['wasm']</code> au même modèle et aux mêmes tailles de batch. Aucune écriture, aucun submit.</p>
+
+  <div class="row">
+    <label class="small">Serveur (gateway) :</label>
+    <input id="baseUrl" type="text" placeholder="https://… (défaut : cette origine)">
+    <label class="small">ou modèle local :</label>
+    <input id="modelFile" type="file" accept=".onnx">
+  </div>
+  <div class="row">
+    <button id="run" class="primary">Lancer le diagnostic</button>
+    <button id="copy" disabled>Copier le rapport</button>
+    <span id="status" class="small"></span>
+  </div>
+
+  <div id="live"></div>
+  <textarea id="report" readonly placeholder="Le rapport copiable s'affichera ici…"></textarea>
+
+<script type="module">
+const ort = window.ort;
+const CDN = 'https://cdn.jsdelivr.net/npm/onnxruntime-web@1.20.1/dist/';
+ort.env.wasm.wasmPaths = CDN;
+const TENSOR_SIZE = 119 * 8 * 8; // 7616
+
+const $ = (id) => document.getElementById(id);
+const liveEl = $('live');
+const R = []; // lignes du rapport
+function rep(line = '') { R.push(line); }
+function live(msg) { liveEl.textContent += msg + '\n'; liveEl.scrollTop = liveEl.scrollHeight; }
+function both(msg) { live(msg); rep(msg); }
+const f1 = (x) => (x == null ? '—' : (+x).toFixed(1));
+
+// --- Capture des logs ORT (placement des nœuds / fallback) ----------------------------------
+const consoleLogs = [];
+for (const lvl of ['log', 'info', 'warn', 'error', 'debug']) {
+  const orig = console[lvl] ? console[lvl].bind(console) : () => {};
+  console[lvl] = (...a) => { try { consoleLogs.push('[' + lvl + '] ' + a.map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).join(' ')); } catch { consoleLogs.push('[' + lvl + '] (unstringifiable)'); } orig(...a); };
+}
+
+// --- Acquisition du modèle (jobserver même-origine OU fichier local) -------------------------
+async function getModelBytes(baseUrl) {
+  const fileInput = $('modelFile');
+  if (fileInput.files && fileInput.files[0]) {
+    const buf = await fileInput.files[0].arrayBuffer();
+    return { version: 'fichier:' + fileInput.files[0].name, bytes: new Uint8Array(buf) };
+  }
+  const base = (baseUrl || '').replace(/\/+$/, '');
+  const cur = await (await fetch(base + '/models/current', { headers: { 'X-Worker-Id': 'diag' } })).json();
+  const ver = cur && cur.version;
+  if (!Number.isInteger(ver)) throw new Error('/models/current invalide : ' + JSON.stringify(cur));
+  const dl = await fetch(base + '/models/' + ver + '/download', { headers: { 'X-Worker-Id': 'diag' } });
+  if (!dl.ok) throw new Error('/models/' + ver + '/download → HTTP ' + dl.status);
+  return { version: ver, bytes: new Uint8Array(await dl.arrayBuffer()) };
+}
+
+// --- Création d'un « net » (session + noms d'E/S) --------------------------------------------
+async function makeNet(bytes, eps) {
+  const session = await ort.InferenceSession.create(bytes, { executionProviders: eps, graphOptimizationLevel: 'all' });
+  const outs = session.outputNames;
+  return {
+    session,
+    inName: session.inputNames[0],
+    polName: outs.includes('policy_logits') ? 'policy_logits' : outs[0],
+    valName: outs.includes('value') ? 'value' : outs[outs.length - 1],
+    inputNames: session.inputNames,
+    outputNames: outs,
+  };
+}
+
+// --- 1 inférence chronométrée, découpée run / data(read-back) / post(softmax JS) -------------
+async function once(net, n, planes) {
+  const input = new ort.Tensor('float32', planes, [n, 119, 8, 8]);
+  const feeds = {}; feeds[net.inName] = input;
+  const t0 = performance.now();
+  const out = await net.session.run(feeds);
+  const t1 = performance.now();
+  const val = out[net.valName].data;   // accès .data → matérialise/le read-back GPU→CPU
+  const pol = out[net.polName].data;
+  const t2 = performance.now();
+  let sink = 0; // softmax3 sur la value (n×3) — reproduit nn.mjs:43-53, empêche le DCE
+  for (let i = 0; i < n; i++) { const a = val[i * 3], b = val[i * 3 + 1], c = val[i * 3 + 2]; const m = Math.max(a, b, c); const ea = Math.exp(a - m), eb = Math.exp(b - m), ec = Math.exp(c - m); sink += ea / (ea + eb + ec); }
+  const t3 = performance.now();
+  return { run: t1 - t0, data: t2 - t1, post: t3 - t2, total: t3 - t0, polLen: pol.length, sink };
+}
+
+async function sweep(net, batches, reps, label) {
+  const out = {};
+  for (const n of batches) {
+    const planes = new Float32Array(n * TENSOR_SIZE);
+    const cold = await once(net, n, planes); // 1er appel = inclut la compilation/plan
+    let r = 0, d = 0, p = 0, t = 0;
+    for (let i = 0; i < reps; i++) { const x = await once(net, n, planes); r += x.run; d += x.data; p += x.post; t += x.total; }
+    out[n] = { cold, warm: { run: r / reps, data: d / reps, post: p / reps, total: t / reps } };
+    both('   batch ' + String(n).padStart(4) + ' : froid ' + f1(cold.total) + ' ms | chaud ' + f1(out[n].warm.total)
+      + ' ms  (run ' + f1(out[n].warm.run) + ' / data ' + f1(out[n].warm.data) + ' / post ' + f1(out[n].warm.post) + ')');
+    await new Promise((res) => setTimeout(res, 0)); // rend la main à l'UI
+  }
+  return out;
+}
+
+// --- Test forme FIXE vs VARIABLE (hypothèse recompile) — webgpu uniquement -------------------
+async function fixedVsVariable(net) {
+  const base = 128, K = 12;
+  const fixed = new Float32Array(base * TENSOR_SIZE);
+  for (let i = 0; i < 3; i++) await once(net, base, fixed); // chauffe la forme 128
+  let tf = 0; for (let i = 0; i < K; i++) tf += (await once(net, base, fixed)).run;
+  // formes variables autour de 128 (jamais deux fois la même d'affilée) → force un re-plan si shape-keyed
+  const sizes = [112, 120, 130, 136, 124, 132, 116, 128, 140, 118, 134, 122];
+  let tv = 0; for (let i = 0; i < K; i++) { const n = sizes[i % sizes.length]; tv += (await once(net, n, new Float32Array(n * TENSOR_SIZE))).run; }
+  return { fixedRunAvg: tf / K, varRunAvg: tv / K };
+}
+
+async function tryConfig(bytes, eps, batches, reps) {
+  const name = '[' + eps.join(',') + ']';
+  both('');
+  both('▶ executionProviders ' + name + ' …');
+  let net;
+  try {
+    net = await makeNet(bytes.slice(), eps); // copie défensive : éviter qu'une création détache le buffer des suivantes
+  } catch (e) {
+    both('   ❌ create() a LEVÉ : ' + (e && e.message ? e.message : e));
+    return { eps, created: false, error: String(e && e.message ? e.message : e) };
+  }
+  both('   ✅ session créée. in=' + JSON.stringify(net.inputNames) + ' out=' + JSON.stringify(net.outputNames));
+  const sw = await sweep(net, batches, reps, name);
+  let fv = null;
+  if (eps.length === 1 && eps[0] === 'webgpu') { both('   — forme fixe vs variable (recompile ?) …'); fv = await fixedVsVariable(net); both('     fixe(128) run ' + f1(fv.fixedRunAvg) + ' ms vs variable run ' + f1(fv.varRunAvg) + ' ms'); }
+  try { await net.session.release(); } catch { /* ok */ }
+  return { eps, created: true, sweep: sw, fixedVsVariable: fv };
+}
+
+async function main() {
+  $('run').disabled = true; $('copy').disabled = true; $('status').textContent = 'en cours…';
+  liveEl.textContent = ''; R.length = 0; consoleLogs.length = 0;
+
+  rep('================ NANOZERO — RAPPORT DIAGNOSTIC INFÉRENCE ================');
+  rep('Date          : ' + new Date().toISOString());
+  rep('User-Agent    : ' + navigator.userAgent);
+  rep('ORT version   : ' + (ort.env && ort.env.versions ? JSON.stringify(ort.env.versions) : '?'));
+  rep('secureContext : ' + self.isSecureContext + ' | crossOriginIsolated : ' + self.crossOriginIsolated);
+  rep('cœurs (hw)    : ' + (navigator.hardwareConcurrency || '?') + ' | wasm.numThreads : ' + ort.env.wasm.numThreads);
+  rep('navigator.gpu : ' + (navigator.gpu ? 'présent' : 'ABSENT'));
+
+  // Adaptateur WebGPU réel
+  try {
+    if (navigator.gpu) {
+      const a = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
+      if (a) {
+        let info = {};
+        try { info = a.info || (a.requestAdapterInfo ? await a.requestAdapterInfo() : {}); } catch { /* */ }
+        rep('Adapter       : isFallback=' + a.isFallbackAdapter + ' | vendor=' + (info.vendor || '?') + ' | arch=' + (info.architecture || '?') + ' | desc=' + (info.description || info.device || '?'));
+      } else { rep('Adapter       : requestAdapter() a renvoyé null'); }
+    }
+  } catch (e) { rep('Adapter       : erreur ' + e); }
+  both('Environnement relevé. Téléchargement du modèle…');
+
+  // Modèle
+  let model;
+  try { model = await getModelBytes($('baseUrl').value.trim()); }
+  catch (e) { both('❌ Échec acquisition modèle : ' + e + ' → choisis un .onnx local et relance.'); finish(); return; }
+  rep('Modèle        : v' + model.version + ' | ' + model.bytes.length + ' octets');
+  both('Modèle v' + model.version + ' (' + model.bytes.length + ' o) chargé.');
+
+  // logs ORT verbeux (placement des nœuds) pour la 1re création
+  ort.env.logLevel = 'verbose';
+
+  const results = {};
+  // webgpu SEUL : sweep complet (rapide si sain) + forme fixe/variable
+  results.webgpu = await tryConfig(model.bytes, ['webgpu'], [1, 16, 64, 128, 256, 267], 5);
+  ort.env.logLevel = 'warning';
+  // config PROD : doit reproduire ~629 ms si le repli s'active
+  results.prod = await tryConfig(model.bytes, ['webgpu', 'wasm'], [64, 267], 3);
+  // WASM SEUL : la baseline CPU (⚠️ peut figer l'onglet quelques secondes)
+  both('');
+  both('⚠️  WASM seul : peut figer l\'onglet quelques secondes par appel (calcul CPU)…');
+  results.wasm = await tryConfig(model.bytes, ['wasm'], [16, 64, 256], 2);
+
+  // ---- Synthèse + auto-verdict --------------------------------------------------------------
+  rep('');
+  rep('======================== SYNTHÈSE ========================');
+  const wgpu = results.webgpu, prod = results.prod, wasm = results.wasm;
+  const g267 = wgpu.created && wgpu.sweep[267] ? wgpu.sweep[267].warm.total : null;
+  const p267 = prod.created && prod.sweep[267] ? prod.sweep[267].warm.total : null;
+  const w256 = wasm.created && wasm.sweep[256] ? wasm.sweep[256].warm.total : null;
+  rep('webgpu        @267 (chaud) : ' + f1(g267) + ' ms/appel' + (wgpu.created ? '' : '  [create a échoué]'));
+  rep('webgpu+wasm   @267 (chaud) : ' + f1(p267) + ' ms/appel   ← config PROD (browser-api.mjs:36)');
+  rep('wasm seul     @256 (chaud) : ' + f1(w256) + ' ms/appel   ← baseline CPU');
+  if (wgpu.created && wgpu.fixedVsVariable) rep('webgpu forme  fixe ' + f1(wgpu.fixedVsVariable.fixedRunAvg) + ' vs variable ' + f1(wgpu.fixedVsVariable.varRunAvg) + ' ms (run)');
+  rep('observé en prod (UI)       : ~629 ms/appel, GPU 100%, 0 pos/s');
+  rep('');
+  rep('--- VERDICT AUTOMATIQUE (indicatif) ---');
+  if (!wgpu.created) {
+    rep('❌ WebGPU SEUL ne peut PAS créer la session ("' + wgpu.error + '").');
+    rep('   → un op du modèle WDL n\'est pas supporté par le backend WebGPU d\'ORT-Web 1.20.1.');
+    rep('   → en prod, executionProviders:[webgpu,wasm] bascule donc le calcul sur WASM/CPU.');
+    rep('   CAUSE = repli/partition WASM. Le fix paliers+padding est INUTILE ici (et nuisible).');
+  } else if (g267 != null && p267 != null && g267 < 120 && p267 > 2.5 * g267) {
+    rep('✅ WebGPU SEUL est RAPIDE (' + f1(g267) + ' ms) mais la config PROD est LENTE (' + f1(p267) + ' ms ≈ baseline WASM ' + f1(w256) + ' ms).');
+    rep('   CAUSE = le repli "wasm" s\'active en prod. FIX = retirer "wasm" de browser-api.mjs:36 (ou comprendre la partition).');
+  } else if (g267 != null && g267 > 300) {
+    rep('⚠️ WebGPU SEUL est AUSSI lent (' + f1(g267) + ' ms) → ce n\'est PAS le repli.');
+    const fv = wgpu.fixedVsVariable;
+    if (fv && fv.varRunAvg > 1.8 * fv.fixedRunAvg) rep('   forme variable ≫ fixe → hypothèse RECOMPILE plausible (fix = paliers+padding+warmup).');
+    else rep('   forme variable ≈ fixe → goulot WebGPU intrinsèque (op lent / sync), PAS la recompile.');
+  } else {
+    rep('Résultats à interpréter à la main (voir le détail ci-dessus).');
+  }
+
+  // logs ORT pertinents (fallback / placement CPU)
+  const kw = /fallback|cpu|wasm|not supported|unsupported|placed|partition|provider/i;
+  const hits = consoleLogs.filter((l) => kw.test(l)).slice(0, 40);
+  rep('');
+  rep('--- Logs ORT pertinents (' + hits.length + '/' + consoleLogs.length + ', filtrés fallback/cpu/placement) ---');
+  for (const l of hits) rep(l.slice(0, 300));
+  if (!hits.length) rep('(aucun log ORT capturé contenant fallback/cpu/placement — verbose peut ne pas remonter en build minifié)');
+
+  rep('========================================================================');
+  finish();
+}
+
+function finish() {
+  $('report').value = R.join('\n');
+  $('run').disabled = false; $('copy').disabled = false; $('status').textContent = 'terminé ✓';
+  live('\n=== Rapport prêt. Clique « Copier le rapport » et colle-le. ===');
+}
+
+$('run').addEventListener('click', () => { main().catch((e) => { both('ERREUR FATALE : ' + (e && e.stack ? e.stack : e)); finish(); }); });
+$('copy').addEventListener('click', async () => { try { await navigator.clipboard.writeText($('report').value); $('status').textContent = 'copié ✓'; } catch { $('report').select(); document.execCommand('copy'); } });
+$('baseUrl').value = location.origin;
+</script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+# quit termine la boucle proprement.
+> uci
+< id name .*
+< id author .*
+< option name .*
+< option name .*
+< uciok
+> quit

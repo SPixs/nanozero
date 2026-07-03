@@ -1,0 +1,123 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NanoZero — Espace admin (monitoring beta)</title>
+<link rel="icon" href="favicon.png">
+<!-- STORY-012 — Tableau de bord beta (monitoring read-only, admin).
+     ⚠️ SÉCURITÉ (AC-1) : cette page DOIT être servie DERRIÈRE UNE AUTHENTIFICATION (Caddy basicauth
+     ou préfixe protégé, cf. T3.1 Option A). Elle ne gère PAS l'auth elle-même : aucun mécanisme maison,
+     aucune saisie de clé. Le routage Caddy + basicauth est une étape de déploiement séparée.
+     READ-ONLY STRICT (AC-4) : affichage uniquement, aucune action destructive. ZÉRO PII (AC-5) :
+     compteurs par session, jamais de pseudo/IP en clair. Réf : DECISIONS-CANONIQUES.md §10, brand kit V1. -->
+<style>
+:root{
+  --bg:#0B0F16;--section:#10151F;--card:#1A1F2B;--raised:#242938;--line:#262d3b;
+  --fg:#F5F7FA;--muted:#AAB3C7;--faint:#6f7a90;--gold:#D4AF37;--mint:#7EDC9A;--blue:#6EA8FF;--red:#f3768b;--amber:#e8b341;
+  --fdisp:"Space Grotesk",Inter,system-ui,sans-serif;--fbody:Inter,system-ui,sans-serif;--fmono:"JetBrains Mono",ui-monospace,monospace;color-scheme:dark;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.55 var(--fbody)}
+.wrap{max-width:1080px;margin:0 auto;padding:0 1.2rem}
+.meta{font-size:11px;color:var(--faint);text-align:center;padding:.35rem;border-bottom:1px solid var(--line)}
+a{color:var(--blue);text-decoration:none}.mono{font-family:var(--fmono)}
+.eyebrow{font-family:var(--fdisp);font-size:.7rem;font-weight:600;letter-spacing:.12em;text-transform:uppercase;color:var(--faint);margin:0 0 .55rem}
+/* header (réutilise la structure du mockup admin-space.html) */
+header{display:flex;align-items:center;gap:.8rem;padding:.8rem 0;border-bottom:1px solid var(--line)}
+.brand{display:flex;align-items:center;gap:.5rem}.brand img{height:26px;width:auto}.brand .wm{font-family:var(--fdisp);font-weight:700;font-size:1.1rem}
+.lock{font-size:.78rem;color:var(--gold);border:1px solid rgba(212,175,55,.3);border-radius:6px;padding:.12rem .5rem}
+header .sp{flex:1}
+.live{color:var(--mint);font-family:var(--fmono);font-size:.82rem}
+.live.off{color:var(--faint)}
+.btn{font:inherit;font-size:.8rem;padding:.32rem .7rem;border-radius:8px;border:1px solid var(--line);background:var(--raised);color:var(--fg);cursor:pointer}
+.btn:hover{border-color:var(--blue)}
+section{padding:1.3rem 0;border-bottom:1px solid var(--line)}
+h2{font-family:var(--fdisp);font-size:1.05rem;margin:0 0 .8rem}
+/* KPIs (CSS panneau 1 du mockup admin-space.html) */
+.kpis{display:grid;grid-template-columns:repeat(4,1fr);gap:.9rem}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:.8rem .9rem}
+.kpi .n{font-family:var(--fmono);font-size:1.6rem;font-weight:700}
+.kpi .l{font-size:.74rem;color:var(--muted);margin-top:.2rem}
+.kpi .d{font-size:.72rem;font-family:var(--fmono);margin-top:.25rem}
+.ok{color:var(--mint)}.warn{color:var(--amber)}.bad{color:var(--red)}.b{color:var(--blue)}.g{color:var(--gold)}
+.muted{color:var(--muted);font-size:.82rem}
+/* corpus browser (barre = CSS panneau du mockup) */
+.corpus-vol{font-family:var(--fmono);font-size:1.7rem;font-weight:700}
+.bar{height:12px;border-radius:7px;background:var(--line);overflow:hidden;margin:.5rem 0}
+.bar>i{display:block;height:100%;background:linear-gradient(90deg,#5fc888,var(--mint));transition:width .4s ease}
+.pill{font-family:var(--fbody);font-size:.72rem;padding:.08rem .45rem;border-radius:6px}
+.pill.ok{background:rgba(126,220,154,.16);color:var(--mint)}
+.pill.warn{background:rgba(232,179,65,.16);color:var(--amber)}
+.pill.bad{background:rgba(243,118,139,.16);color:var(--red)}
+.corpus-grid{display:grid;grid-template-columns:1fr 1fr;gap:1.2rem}
+footer{padding:1rem 0 2rem;color:var(--faint);font-size:.8rem}
+@media(max-width:680px){.kpis{grid-template-columns:1fr 1fr}.corpus-grid{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<div class="meta">espace admin — monitoring beta read-only · authentifié (auth assurée par le reverse-proxy) · DECISIONS-CANONIQUES §10</div>
+<div class="wrap">
+  <header>
+    <span class="brand"><img src="brand-mark.png" alt=""><span class="wm">NanoZero</span></span>
+    <span class="lock">🔒 Espace admin</span>
+    <span class="sp"></span>
+    <span id="live" class="live off">● en attente</span>
+    <button id="btn-refresh" class="btn" type="button">Actualiser</button>
+  </header>
+
+  <!-- 1. POULS LIVE — 4 KPIs (AC-2) -->
+  <section>
+    <p class="eyebrow">Pouls live</p>
+    <div class="kpis">
+      <div class="kpi" id="kpi-sessions">
+        <div class="n b" data-n>—</div>
+        <div class="l">sessions browser actives (24 h)</div>
+        <div class="d muted" data-d>Chargement…</div>
+      </div>
+      <div class="kpi" id="kpi-rate">
+        <div class="n g" data-n>—</div>
+        <div class="l">positions vérifiées / h</div>
+        <div class="d muted" data-d>Chargement…</div>
+      </div>
+      <div class="kpi" id="kpi-verif">
+        <div class="n" data-n>—</div>
+        <div class="l">taux de vérification (vérifiées ÷ soumises)</div>
+        <div class="d muted" data-d>Chargement…</div>
+      </div>
+      <div class="kpi" id="kpi-quarantine">
+        <div class="n g" data-n>—</div>
+        <div class="l">corpus browser en quarantaine</div>
+        <div class="d muted" data-d>Chargement…</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- 2. CORPUS BROWSER — volume + barre browser vs fleet (AC-2 d) -->
+  <section>
+    <p class="eyebrow">Corpus browser</p>
+    <div class="corpus-grid">
+      <div>
+        <div class="corpus-vol g" id="corpus-browser-vol">—</div>
+        <div class="muted" style="margin-bottom:.5rem">positions vérifiées, source=browser, en quarantaine (en attente du gate anti-poison)</div>
+        <div class="bar"><i id="corpus-bar" style="width:0%"></i></div>
+        <div class="muted" style="margin-top:.4rem" id="corpus-detail">Chargement…</div>
+      </div>
+      <div>
+        <p class="eyebrow">Provenance</p>
+        <div class="muted" id="corpus-split">Chargement…</div>
+        <div class="muted" style="margin-top:.5rem">Dérive (drift_verdict) : <span id="drift-verdict" class="mono">—</span></div>
+        <div class="muted" style="margin-top:.5rem">Sims MCTS effectifs (médian) : <span id="eff-sims" class="mono">—</span></div>
+      </div>
+    </div>
+  </section>
+
+  <footer>
+    <span id="footer-status">Aucune donnée disponible pour l'instant.</span>
+    <span class="sp"></span>
+    Dernière mise à jour : <span id="last-update" class="mono">—</span> · rafraîchissement auto toutes les 5 s.
+  </footer>
+</div>
+<script type="module" src="admin.mjs"></script>
+</body>
+</html>

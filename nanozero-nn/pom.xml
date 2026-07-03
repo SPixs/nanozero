@@ -1,0 +1,213 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.nanozero</groupId>
+        <artifactId>nanozero-parent</artifactId>
+        <version>1.5.0</version>
+    </parent>
+
+    <artifactId>nanozero-nn</artifactId>
+    <version>1.5.0</version>
+    <packaging>jar</packaging>
+
+    <name>NanoZero NN</name>
+
+    <properties>
+        <!-- Default CPU EP. Override via -Pgpu profile pour CUDA EP (onnxruntime_gpu). -->
+        <onnxruntime.artifact>onnxruntime</onnxruntime.artifact>
+    </properties>
+    <description>
+        Inférence du réseau de neurones AlphaZero ResNet 8x96 en pur Java
+        avec Vector API SIMD. Consomme les positions encodées par
+        nanozero-board, produit logits policy (4672) et value (scalaire).
+    </description>
+
+    <dependencies>
+        <!-- Compile : dépendance unique sur le module board -->
+        <dependency>
+            <groupId>org.nanozero</groupId>
+            <artifactId>nanozero-board</artifactId>
+            <version>1.5.0</version>
+        </dependency>
+
+        <!-- ONNX Runtime Java (Phase 12 PoC v1.1.0+ : backend ONNX pour NetworkOnnx).
+             Default : CPU EP only. Pour CUDA EP : utiliser profile `gpu` qui swap en
+             onnxruntime_gpu.
+
+             (v1.3.0 — 2026-05-20) Version 1.20.0 conservée. ORT GPU >= 1.17 requiert
+             CUDA 12.x + cuDNN 9 ; downgrade à 1.14.x serait nécessaire pour CUDA 11.6.
+             Sur W3090 actuel : CUDA 11.6 + cuDNN 8.x → CUDA EP indisponible avec
+             notre ORT 1.20.x ; le fallback CPU EP s'active automatiquement (cf.
+             UciMain.loadNetworkWithCudaFallback). Pour activer CUDA EP en production,
+             nettoyer C: W3090 (1 GB libre actuellement) + installer CUDA 12.x +
+             cuDNN 9.x (~5 GB). Validation GPU différée. -->
+        <dependency>
+            <groupId>com.microsoft.onnxruntime</groupId>
+            <artifactId>${onnxruntime.artifact}</artifactId>
+            <version>1.20.0</version>
+        </dependency>
+
+        <!-- Test scope -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Compiler : JDK 25 + Vector API incubator -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <release>25</release>
+                    <compilerArgs>
+                        <arg>--add-modules</arg>
+                        <arg>jdk.incubator.vector</arg>
+                    </compilerArgs>
+                </configuration>
+            </plugin>
+
+            <!-- Surefire : Vector API incubator au runtime tests + exclusion @Tag("perf") par défaut -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>--add-modules jdk.incubator.vector ${argLine}</argLine>
+                    <excludedGroups>perf</excludedGroups>
+                </configuration>
+            </plugin>
+
+            <!-- Spotless : Google Java Format -->
+            <plugin>
+                <groupId>com.diffplug.spotless</groupId>
+                <artifactId>spotless-maven-plugin</artifactId>
+            </plugin>
+
+            <!-- Exec : pour lancer les fixture generators standalone via
+                 mvn -pl nanozero-nn exec:java -Dexec.classpathScope=test ...
+                 Cf. nanozero-training phase 1.0.0-4-a (fixtures parité Java/Python). -->
+            <plugin>
+                <groupId>org.codehaus.mojo</groupId>
+                <artifactId>exec-maven-plugin</artifactId>
+                <version>3.5.0</version>
+                <configuration>
+                    <arguments combine.self="override"/>
+                </configuration>
+            </plugin>
+
+            <!-- Enforcer : JDK 25, Maven 3.9+, dependency convergence -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+            </plugin>
+
+            <!-- JaCoCo : coverage check à 90 % bundle, activé dès phase 8 -->
+            <!-- TODO phase 8 : activer le goal jacoco:check ici -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                    <!-- Activation jacoco-check phase 8 :
+                    <execution>
+                        <id>jacoco-check</id>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                        <configuration>
+                            <rules>
+                                <rule>
+                                    <element>BUNDLE</element>
+                                    <limits>
+                                        <limit>
+                                            <counter>LINE</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.90</minimum>
+                                        </limit>
+                                        <limit>
+                                            <counter>BRANCH</counter>
+                                            <value>COVEREDRATIO</value>
+                                            <minimum>0.90</minimum>
+                                        </limit>
+                                    </limits>
+                                </rule>
+                            </rules>
+                        </configuration>
+                    </execution>
+                    -->
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <!-- Profil parity : inclut les tests de parité numérique vs PyTorch -->
+        <!-- À activer en phase 9 ; pour l'instant placeholder -->
+        <profile>
+            <id>parity</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <groups>parity</groups>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!-- Profil gpu : switch dep onnxruntime → onnxruntime_gpu (CUDA EP + CPU fallback).
+             Usage : mvn -Pgpu install (W3090 RTX 3090). Requires CUDA Toolkit + cuDNN
+             dans PATH système au runtime. -->
+        <profile>
+            <id>gpu</id>
+            <properties>
+                <onnxruntime.artifact>onnxruntime_gpu</onnxruntime.artifact>
+            </properties>
+        </profile>
+
+        <!-- Profil perf : ré-inclut les tests @Tag("perf") (benchs rapides post-warmup
+             des kernels Vector API). Exclus par défaut pour CI rapide.
+             Usage : mvn -pl nanozero-nn -Pperf verify -->
+        <profile>
+            <id>perf</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <excludedGroups combine.self="override"></excludedGroups>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+</project>

@@ -1,0 +1,109 @@
+# Stack MVP nanozero.org (Lot C0) : Caddy (TLS + front statique + reverse-proxy)
+# + jobserver (FastAPI, PostgreSQL) + postgres.
+# cf. ../docs/DECISIONS.md (D5/D6/D10) + ../../nanozero-jobserver/docs/PG-MIGRATION-plan.md
+#
+# Déploiement (sur nanoserver) : copier .env.example -> .env (renseigner POSTGRES_PASSWORD),
+# puis depuis ce dossier :  docker compose up -d --build
+#
+# Ni postgres ni jobserver n'exposent de port à l'hôte : seul Caddy est public.
+# L'accès externe passe par https://nanozero.org/api/v1/...
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: nanozero
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: nanozero
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    expose:
+      - "5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U nanozero -d nanozero"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # Tuning VPS 11 Go : autovacuum agressif (replay buffer = DELETE-heavy, cf. plan §4.3).
+    command: >
+      postgres
+        -c shared_buffers=512MB
+        -c work_mem=16MB
+        -c effective_cache_size=1GB
+        -c autovacuum_vacuum_scale_factor=0.05
+        -c autovacuum_analyze_scale_factor=0.02
+        -c autovacuum_vacuum_cost_delay=2ms
+
+  jobserver:
+    build:
+      context: ../../nanozero-jobserver
+    image: nanozero-jobserver:local
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      NANOZERO_JOBSERVER_DATABASE_URL: postgresql://nanozero:${POSTGRES_PASSWORD}@postgres:5432/nanozero
+      NANOZERO_JOBSERVER_NPZ_OUTPUT_DIR: /data/datasets
+      NANOZERO_JOBSERVER_SEASON_TARGET: ${SEASON_TARGET:-20000000}
+      # Vide = auth désactivée (contribution publique ouverte ; anti-poison = drift detection).
+      NANOZERO_JOBSERVER_API_KEY: ${JOBSERVER_API_KEY:-}
+      # Rétention HOT (BLOBs) — garder bas (le training ne lit que window=2).
+      NANOZERO_JOBSERVER_FLUSH_RETENTION_WINDOW: ${FLUSH_RETENTION_WINDOW:-2}
+      # Seuil de flush NPZ : positions non-flushées (par version) avant l'écriture d'un shard.
+      NANOZERO_JOBSERVER_FLUSH_THRESHOLD: ${FLUSH_THRESHOLD:-100000}
+    volumes:
+      - jobserver-data:/data    # shards NPZ uniquement (la DB vit dans postgres-data)
+    expose:
+      - "8090"
+    # Laisse le temps au shutdown gracieux (force_flush du tampon flotte).
+    stop_grace_period: 45s
+
+  # Backend SITE (Spring Boot, Java 25) — persistance des parties jouées (D11 / incrément 1).
+  # Rejoint le Postgres existant, schéma 'site' (à côté de 'public' = jobserver). N'expose pas de port.
+  site:
+    build:
+      context: ../../nanozero-site
+    image: nanozero-site:local
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      SPRING_PROFILES_ACTIVE: prod
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/nanozero?currentSchema=site
+      SPRING_DATASOURCE_USERNAME: nanozero
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_PASSWORD}
+      NANOZERO_SITE_NETWORK_VERSION: ${NETWORK_VERSION:-gen-031}
+      NANOZERO_SITE_PUBLIC_BASE_URL: ${SITE_PUBLIC_BASE_URL:-https://nanozero.org}
+    expose:
+      - "8080"
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://localhost:8080/api/site/actuator/health || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    depends_on:
+      - jobserver
+      - site
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - ./site:/srv/site:ro
+      - caddy-data:/data       # certificats Let's Encrypt (persistants)
+      - caddy-config:/config
+      - caddy-logs:/var/log/caddy  # journal d'accès (stats trafic, cf. Caddyfile + README)
+
+volumes:
+  postgres-data:    # base PostgreSQL — la donnée de prod, à sauvegarder
+  jobserver-data:   # shards NPZ
+  caddy-data:
+  caddy-config:
+  caddy-logs:       # access.log JSON (rotation 10 MiB × 10)

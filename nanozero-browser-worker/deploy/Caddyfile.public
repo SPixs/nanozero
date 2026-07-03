@@ -1,0 +1,84 @@
+# ============================================================================
+# NanoZero — Gateway publique volontaire (Story B.2)  [ARTEFACT — NON DÉPLOYÉ]
+# ============================================================================
+# Defense-in-depth : SEULES les 4 routes publiques (claim / submit / model-current /
+# model-download) sont proxifiées vers le jobserver. Tout le reste → 403 (jamais
+# atteint le jobserver, même si B.1 les a rendues keyless côté serveur).
+#
+# ADDITIF : le $HOME/Caddyfile existant (bloc `:8096` reverse-proxy de la FLOTTE)
+# reste INCHANGÉ. Ce fichier décrit un site SÉPARÉ (`:8097`) dédié au public anonyme.
+#
+# ⚠️ À placer DERRIÈRE l'exposition publique réelle (Cloudflare Tunnel / Tailscale Funnel),
+#    qui porte le RATE-LIMIT par IP + WAF (le module `rate_limit` n'est pas dans le binaire
+#    Caddy vanilla → cf spec B.2 volet 3). NE PAS ouvrir au public avant go-live validé.
+#
+# Validation :
+#   VOLUNTEER_ORIGIN=https://nanozero.example caddy validate \
+#     --config Caddyfile.public --adapter caddyfile
+# ============================================================================
+{
+	admin off
+	auto_https off
+}
+
+:8097 {
+	# --- Anti zip-bomb (volet COMPRESSÉ) : rejette tôt un body compressé trop gros.
+	#     Le cap du DÉ-gzippé (64 Mo) est côté jobserver (GzipRequestMiddleware). 16 Mo
+	#     compressé est très au-dessus d'un submit fleet/browser gzippé réel (~1-4 Mo).
+	request_body {
+		max_size 16MB
+	}
+
+	# --- CORS préflight (origine de la page volontaire, via env VOLUNTEER_ORIGIN).
+	@preflight method OPTIONS
+	handle @preflight {
+		header Access-Control-Allow-Origin "{$VOLUNTEER_ORIGIN}"
+		header Access-Control-Allow-Methods "GET, POST, OPTIONS"
+		header Access-Control-Allow-Headers "Content-Type, Content-Encoding"
+		header Access-Control-Max-Age "86400"
+		respond 204
+	}
+
+	# --- Allowlist DEFAULT-DENY : 4 routes publiques uniquement (méthode + chemin exacts).
+	@claim {
+		method POST
+		path /jobs/claim
+	}
+	handle @claim {
+		header Access-Control-Allow-Origin "{$VOLUNTEER_ORIGIN}"
+		reverse_proxy 127.0.0.1:8090
+	}
+
+	@submit {
+		method POST
+		path_regexp ^/jobs/[^/]+/submit$
+	}
+	handle @submit {
+		header Access-Control-Allow-Origin "{$VOLUNTEER_ORIGIN}"
+		reverse_proxy 127.0.0.1:8090
+	}
+
+	@current {
+		method GET
+		path /models/current
+	}
+	handle @current {
+		header Access-Control-Allow-Origin "{$VOLUNTEER_ORIGIN}"
+		reverse_proxy 127.0.0.1:8090
+	}
+
+	@download {
+		method GET
+		path_regexp ^/models/[0-9]+/download$
+	}
+	handle @download {
+		header Access-Control-Allow-Origin "{$VOLUNTEER_ORIGIN}"
+		reverse_proxy 127.0.0.1:8090
+	}
+
+	# --- Tout le reste → 403. /admin, /selfplay, /replay, /jobs/enqueue,
+	#     /models/register, /models/{v}/promote, /stats/* ... ne sont JAMAIS proxifiés.
+	handle {
+		respond "Forbidden" 403
+	}
+}

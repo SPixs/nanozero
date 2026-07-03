@@ -1,0 +1,251 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Analyser une partie — NanoZero</title>
+  <meta name="description" content="Analyse une partie ou une position d'échecs avec NanoZero, directement dans ton navigateur — colle un PGN ou un FEN, navigue coup par coup.">
+  <link rel="canonical" href="https://nanozero.org/analyse/">
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="NanoZero">
+  <meta property="og:locale" content="fr_FR">
+  <meta property="og:title" content="Analyser une partie — NanoZero">
+  <meta property="og:description" content="Colle un PGN ou un FEN, navigue coup par coup, vois l'évaluation de Nano. 100 % navigateur.">
+  <meta property="og:image" content="https://nanozero.org/assets/og-card.jpg">
+  <meta property="og:image:type" content="image/jpeg">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:url" content="https://nanozero.org/analyse/">
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Analyser une partie — NanoZero">
+  <meta name="twitter:image" content="https://nanozero.org/assets/og-card.jpg">
+  <link rel="stylesheet" href="/assets/fonts/fonts.css">
+  <style>
+    :root{
+      --bg:#0B0F16; --surface:#1A1F2B; --surface-hi:#242938; --line:#31384A;
+      --text:#F5F7FA; --muted:#AAB3C7; --gold:#c9a96e; --gold-dim:rgba(201,169,110,.55);
+      --mint:#7EDC9A; --blue:#6EA8FF;
+      --board-dark:#9c7234; --board-light:#f3e2c0;
+      --nz-last:rgba(201,169,110,.50); --nz-sel:rgba(201,169,110,.62);
+      --nz-dot:rgba(43,30,10,.34); --nz-check:rgba(220,54,54,.92);
+      --font-disp:"Space Grotesk",system-ui,sans-serif; --font-body:Inter,system-ui,sans-serif;
+    }
+    *,*::before,*::after{box-sizing:border-box;margin:0;}
+    body{background:var(--bg) radial-gradient(circle at 1px 1px,rgba(49,56,74,.22) 1px,transparent 0) 0 0/30px 30px;
+      color:var(--text);font-family:var(--font-body);min-height:100dvh;-webkit-font-smoothing:antialiased;}
+    body::before{content:'';position:fixed;inset:0;z-index:-1;pointer-events:none;
+      background:radial-gradient(ellipse 70% 45% at 50% -8%,rgba(201,169,110,.08),transparent 60%);}
+    [hidden]{display:none!important;}
+    a{color:inherit;}
+
+    /* ---- Chrome de site (logo-home, identique à /play/) ---- */
+    .play-home{position:absolute;top:16px;left:18px;display:inline-flex;align-items:center;gap:.5rem;
+      text-decoration:none;padding:.32rem .56rem .32rem .34rem;border-radius:11px;border:1px solid transparent;
+      transition:background .15s,border-color .15s;}
+    .play-home:hover{background:rgba(255,255,255,.045);border-color:var(--line);}
+    .play-home-mark{width:30px;height:30px;border-radius:7px;display:block;box-shadow:0 0 0 1px var(--line);}
+    .play-home-name{font-family:var(--font-disp);font-weight:600;font-size:.95rem;color:var(--text);}
+
+    .wrap{max-width:1100px;margin:0 auto;padding:4rem 1rem 2rem;}
+    h1{font-family:var(--font-disp);font-size:clamp(1.4rem,4vw,1.9rem);font-weight:700;letter-spacing:-.025em;}
+    h1 .accent{color:var(--gold);}
+    .demo-badge{display:inline-block;font-family:var(--font-disp);font-size:.66rem;font-weight:600;
+      letter-spacing:.1em;text-transform:uppercase;padding:3px 10px;border-radius:999px;color:var(--gold);
+      background:rgba(201,169,110,.1);border:1px solid rgba(201,169,110,.25);margin-bottom:.6rem;}
+    .sub{color:var(--muted);font-size:.92rem;margin:.3rem 0 1.3rem;}
+
+    /* ---- Disposition échiquier + panneau ---- */
+    .layout{display:grid;gap:1.4rem;grid-template-columns:1fr;align-items:start;justify-items:center;}
+    @media (min-width:880px){.layout{grid-template-columns:minmax(0,1fr) minmax(300px,360px);}}
+    .board-area{width:100%;display:flex;flex-direction:column;align-items:center;gap:.55rem;min-width:0;}
+    .board-wrap{aspect-ratio:1/1;width:min(calc(100vw - 2rem),620px);max-width:100%;min-width:0;}
+    /* ---- Graphe W/D/L de la partie (S-14) : 3 zones empilées, remplissage async, cliquable ---- */
+    .timeline-wrap{width:min(calc(100vw - 2rem),620px);max-width:100%;}
+    .tl-box{position:relative;}
+    .timeline{display:block;width:100%;height:52px;background:var(--surface);border:1px solid var(--line);border-radius:8px;cursor:pointer;}
+    .tl-cursor{position:absolute;top:0;bottom:0;width:2px;background:var(--gold);transform:translateX(-1px);pointer-events:none;box-shadow:0 0 5px rgba(201,169,110,.6);}
+    .timeline-prog{font-size:.72rem;color:var(--muted);margin-top:.3rem;text-align:center;min-height:1em;}
+    .timeline.tl-dim{opacity:.4;}
+    .tl-overlay{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;
+      font-family:var(--font-disp);font-size:.72rem;letter-spacing:.04em;color:var(--muted);pointer-events:none;}
+    /* ---- Variantes MultiPV (sous l'échiquier) ---- */
+    .pv-card{width:min(calc(100vw - 2rem),620px);max-width:100%;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:.7rem .55rem;}
+    .pv-card h2{display:flex;align-items:baseline;gap:.4rem;font-family:var(--font-disp);font-size:.72rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:500;margin-bottom:.45rem;}
+    .pv-card .exp{font-size:.64rem;font-weight:400;text-transform:none;letter-spacing:0;}
+    .pv-list{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:.1rem;}
+    .pv-line{display:flex;align-items:center;gap:.4rem;padding:.22rem .15rem;border-radius:6px;cursor:pointer;}
+    .pv-line:hover{background:var(--surface-hi);}
+    .pv-gauge{display:flex;width:108px;height:18px;border-radius:5px;overflow:hidden;border:1px solid var(--line);flex:none;}
+    .pv-gauge i{display:flex;align-items:center;justify-content:center;overflow:hidden;white-space:nowrap;min-width:0;font:600 .62rem/1 var(--font-disp,system-ui);}
+    .pv-gauge .gw{background:linear-gradient(to right,#f5f5ef,#e8e0d0);color:#0B0F16;} .pv-gauge .gd{background:#6ec9d4;color:#06343b;} .pv-gauge .gl{background:linear-gradient(to right,#3f4458,#2a2d3e);color:#eef1f6;}
+    .pv-eval{min-width:3.2em;text-align:right;font-family:var(--font-disp);font-variant-numeric:tabular-nums;font-size:.94rem;color:var(--muted);flex:none;}
+    .pv-moves{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.92rem;color:var(--muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0;flex:1;}
+    .pv-line.pv-best .pv-eval{color:var(--gold);font-weight:600;}
+    .pv-line.pv-best .pv-moves{color:var(--text);}
+    #board{border-radius:6px;overflow:hidden;box-shadow:0 2px 0 rgba(201,169,110,.18),0 12px 40px rgba(0,0,0,.55);}
+    .panel{width:100%;max-width:620px;display:flex;flex-direction:column;gap:1rem;}
+    @media (min-width:880px){.panel{max-width:none;}}
+
+    /* ---- Chargement PGN/FEN ---- */
+    .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:1rem;display:flex;flex-direction:column;gap:.6rem;}
+    .card h2{font-family:var(--font-disp);font-size:.78rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);font-weight:500;}
+    textarea,input[type=text]{width:100%;background:var(--surface-hi);color:var(--text);border:1px solid var(--line);
+      border-radius:8px;padding:.55rem .65rem;font:inherit;font-size:.85rem;resize:vertical;}
+    textarea{min-height:90px;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.8rem;line-height:1.4;}
+    .load-row{display:flex;gap:.5rem;flex-wrap:wrap;align-items:center;}
+    .btn{font-family:var(--font-disp);font-weight:600;font-size:.9rem;border-radius:9px;padding:.55rem .9rem;cursor:pointer;
+      border:1px solid var(--line);background:var(--surface-hi);color:var(--text);transition:border-color .15s,background .15s,filter .12s,transform .12s;}
+    .btn:hover{border-color:var(--gold);}
+    .btn--primary{background:var(--mint);color:#0B0F16;border-color:transparent;font-weight:700;}
+    .btn--primary:hover{filter:brightness(1.06);border-color:transparent;}
+    .err{color:#e5816a;font-size:.82rem;min-height:1em;}
+
+    /* ---- Navigation + liste de coups ---- */
+    .nav{display:flex;gap:.4rem;justify-content:center;}
+    .nav button{display:inline-flex;align-items:center;justify-content:center;color:var(--text);background:var(--surface-hi);
+      border:1px solid var(--line);border-radius:8px;padding:.45rem .8rem;cursor:pointer;min-width:2.8rem;transition:border-color .15s,color .15s;}
+    .nav button svg{display:block;width:18px;height:18px;}
+    .nav button:hover:not(:disabled){border-color:var(--gold);color:var(--gold);}
+    .nav button:disabled{opacity:.4;cursor:default;}
+    .moves{list-style:none;display:grid;grid-template-columns:auto 1fr 1fr;gap:.12rem .5rem;font-size:.88rem;
+      max-height:46vh;overflow-y:auto;background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:.6rem .7rem;}
+    .moves:empty{display:none;}
+    .moves .num{color:var(--muted);}
+    .moves .mv{cursor:pointer;padding:.05rem .3rem;border-radius:5px;}
+    .moves .mv:hover{background:var(--surface-hi);}
+    .moves .mv.active{background:rgba(201,169,110,.18);color:var(--gold);font-weight:600;}
+    /* ---- Variante (S-08) : bloc dans la liste + bandeau ---- */
+    .moves .variant-block{grid-column:1/-1;font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85rem;
+      color:var(--blue);background:rgba(110,168,255,.08);border-radius:6px;padding:.25rem .45rem;margin:.12rem 0;line-height:1.55;}
+    .moves .variant-block .vlead{color:var(--muted);margin-right:.15rem;}
+    .moves .variant-block .vm{cursor:pointer;padding:0 .12rem;border-radius:4px;}
+    .moves .variant-block .vm:hover{background:rgba(110,168,255,.18);}
+    .moves .variant-block .vm.active{background:rgba(110,168,255,.30);color:#dbe8ff;font-weight:600;}
+    .variant-bar{display:flex;align-items:center;justify-content:space-between;gap:.6rem;
+      background:var(--surface-hi);border-left:3px solid var(--blue);border-radius:8px;padding:.45rem .7rem;}
+    .variant-bar .vb-label{font-family:var(--font-disp);font-size:.82rem;color:var(--blue);font-weight:600;}
+    .variant-bar .vb-note{color:var(--muted);font-weight:400;font-size:.72rem;}
+    .variant-bar .vb-exit{font-family:var(--font-disp);font-size:.78rem;color:var(--gold);background:transparent;
+      border:1px solid var(--line);border-radius:7px;padding:.32rem .6rem;cursor:pointer;flex:none;}
+    .variant-bar .vb-exit:hover{border-color:var(--gold);}
+    .meta{font-size:.82rem;color:var(--muted);min-height:1em;}
+    .share-row{display:flex;justify-content:center;}
+
+    /* ---- Carte évaluation (S-07) ---- */
+    .eval-card h2{display:flex;align-items:baseline;gap:.4rem;}
+    .eval-card .exp{font-size:.68rem;color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;}
+    /* Jauge W/D/L : haute, % incrustés. Couleurs = convention self-play (Blancs blanc chaud / Nulle cyan / Noirs gris). */
+    .gauge{display:flex;height:28px;border-radius:8px;overflow:hidden;border:1px solid var(--line);background:var(--surface-hi);
+      font-family:var(--font-disp);font-weight:600;font-size:.76rem;font-variant-numeric:tabular-nums;}
+    .gauge span{display:flex;align-items:center;justify-content:center;overflow:hidden;white-space:nowrap;min-width:0;transition:flex-grow .25s;}
+    .gauge .g-w{background:linear-gradient(to right,#f5f5ef,#e8e0d0);color:#0B0F16;}
+    .gauge .g-d{background:#6ec9d4;color:#06343b;}
+    .gauge .g-l{background:linear-gradient(to right,#3f4458,#2a2d3e);color:#eef1f6;}
+    .eval-v{font-family:var(--font-disp);font-weight:600;font-size:.95rem;}
+    /* jauge de criticité : barre vert→rouge, label incrusté */
+    .crit{position:relative;height:26px;border-radius:8px;overflow:hidden;border:1px solid var(--line);background:var(--surface-hi);margin-top:.5rem;}
+    .crit-fill{position:absolute;top:0;bottom:0;left:0;width:0;transition:width .3s ease,background .3s ease;}
+    .crit-txt{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--font-disp);
+      font-weight:600;font-size:.74rem;color:#fff;text-shadow:0 1px 2px rgba(0,0,0,.6);letter-spacing:.01em;}
+    .eval-flag{font-size:.78rem;color:#e5b06a;background:rgba(229,176,106,.1);border:1px solid rgba(229,176,106,.28);
+      border-radius:8px;padding:.4rem .55rem;line-height:1.35;}
+    .eval-status{font-size:.8rem;color:var(--muted);min-height:1em;}
+    .depth-row{display:flex;align-items:center;gap:.55rem;margin-top:.2rem;color:var(--muted);}
+    .depth-row label{font-family:var(--font-disp);text-transform:uppercase;letter-spacing:.04em;font-size:.66rem;}
+    .depth-row input[type=range]{flex:1;accent-color:var(--gold);cursor:pointer;min-width:0;}
+    .depth-row #depth-val{font-size:.78rem;font-variant-numeric:tabular-nums;color:var(--text);min-width:4.6em;text-align:right;}
+    :focus-visible{outline:2px solid var(--gold);outline-offset:3px;border-radius:4px;}
+    @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important;}}
+  </style>
+</head>
+<body>
+  <a class="play-home" href="/" aria-label="NanoZero — retour à l'accueil">
+    <img class="play-home-mark" src="/assets/logo/favicons/icon-64.png" alt="">
+    <span class="play-home-name">NanoZero</span>
+  </a>
+
+  <main class="wrap">
+    <div class="demo-badge">Aperçu</div>
+    <h1>Analyser une <span class="accent">partie</span></h1>
+    <p class="sub">Colle un PGN ou un FEN, puis navigue coup par coup.</p>
+
+    <div class="layout">
+      <div class="board-area">
+        <div class="board-wrap"><div id="board"></div></div>
+        <div class="timeline-wrap" id="timeline-wrap" hidden>
+          <div class="tl-box">
+            <svg class="timeline" id="timeline" viewBox="0 0 100 36" preserveAspectRatio="none" aria-label="Évaluation W/D/L au fil de la partie"></svg>
+            <div class="tl-cursor" id="tl-cursor"></div>
+            <div class="tl-overlay" id="tl-overlay" hidden>Graphe · partie</div>
+          </div>
+          <div class="timeline-prog" id="timeline-prog"></div>
+        </div>
+        <div class="pv-card" id="pv-card" hidden>
+          <h2>Variantes <span class="exp">· expérimentale</span></h2>
+          <ol class="pv-list" id="pv-list"></ol>
+        </div>
+      </div>
+
+      <aside class="panel">
+        <div class="card">
+          <h2>Charger</h2>
+          <textarea id="pgn-input" placeholder="Colle un PGN ici (1. e4 e5 2. Nf3 …)" spellcheck="false" aria-label="Coller un PGN"></textarea>
+          <div class="load-row">
+            <input type="text" id="fen-input" placeholder="… ou une position FEN" spellcheck="false" aria-label="Coller un FEN">
+          </div>
+          <div class="load-row">
+            <button class="btn btn--primary" id="load-btn">Charger</button>
+            <button class="btn" id="sample-btn">Exemple</button>
+          </div>
+          <p class="err" id="err" aria-live="polite"></p>
+        </div>
+
+        <div class="card eval-card" id="eval" hidden>
+          <h2>Évaluation <span class="exp">· expérimentale</span></h2>
+          <div class="gauge"><span class="g-w" id="g-w"></span><span class="g-d" id="g-d"></span><span class="g-l" id="g-l"></span></div>
+          <div class="eval-v" id="eval-v"></div>
+          <div class="crit" id="crit" hidden><span class="crit-fill" id="crit-fill"></span><span class="crit-txt" id="crit-txt"></span></div>
+          <div class="eval-flag" id="eval-flag" hidden>⚠ Réseau peu entraîné sur ce type de position — éval indicative.</div>
+          <div class="eval-status" id="eval-status"></div>
+          <div class="depth-row">
+            <label for="depth">Profondeur</label>
+            <input type="range" id="depth" min="0" max="5" step="1" value="3" aria-label="Profondeur d'analyse">
+            <span id="depth-val">512 sims</span>
+          </div>
+        </div>
+
+        <div class="meta" id="meta"></div>
+        <div class="nav">
+          <button id="first" title="Début" aria-label="Première position"><svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><polygon points="19 20 9 12 19 4 19 20"/><rect x="3.5" y="4" width="2.2" height="16" rx="1"/></svg></button>
+          <button id="prev" title="Coup précédent (←)" aria-label="Coup précédent"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m15 18-6-6 6-6"/></svg></button>
+          <button id="next" title="Coup suivant (→)" aria-label="Coup suivant"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg></button>
+          <button id="last" title="Fin" aria-label="Dernière position"><svg viewBox="0 0 24 24" fill="currentColor" stroke="currentColor" stroke-width="2" stroke-linejoin="round" aria-hidden="true"><polygon points="5 4 15 12 5 20 5 4"/><rect x="18.3" y="4" width="2.2" height="16" rx="1"/></svg></button>
+        </div>
+        <div class="share-row"><button class="btn" id="share-btn">Copier le lien</button></div>
+        <div class="variant-bar" id="variant-bar" hidden>
+          <span class="vb-label">⤷ Variante <span class="vb-note">· non sauvegardée</span></span>
+          <button class="vb-exit" id="vb-exit">× Retour à la partie</button>
+        </div>
+        <ol class="moves" id="moves"></ol>
+      </aside>
+    </div>
+  </main>
+
+  <script type="module" src="dist/app.bundle.js"></script>
+
+<style>
+  .site-footer{display:flex;gap:.7rem;justify-content:center;align-items:center;flex-wrap:wrap;
+    margin:2.6rem auto 1.2rem;padding:0 1rem;font-size:.78rem;color:var(--muted);}
+  .site-footer a{color:var(--muted);text-decoration:none;transition:color .15s;}
+  .site-footer a:hover{color:var(--text);}
+  .site-footer .sep{opacity:.5;}
+</style>
+<footer class="site-footer">
+  <a href="/">Accueil</a><span class="sep" aria-hidden="true">·</span>
+  <a href="/play/">Jouer</a><span class="sep" aria-hidden="true">·</span>
+  <a href="/analyse/">Analyser</a><span class="sep" aria-hidden="true">·</span>
+  <a href="/worker/">Contribuer</a><span class="sep" aria-hidden="true">·</span>
+  <a href="/mentions-legales/">Mentions légales</a>
+</footer>
+</body>
+</html>

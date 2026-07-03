@@ -1,0 +1,4 @@
+# Profil prod : tout vient de l'environnement (docker-compose / .env). Voir application.yml pour les défauts.
+nanozero:
+  site:
+    cors-origins: ${NANOZERO_SITE_CORS_ORIGINS:https://nanozero.org}

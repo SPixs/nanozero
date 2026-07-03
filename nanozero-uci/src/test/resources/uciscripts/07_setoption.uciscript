@@ -1,0 +1,5 @@
+# setoption mute UciOptionsState, aucune émission stdout, isready ensuite confirme l'engine vivant.
+> setoption name Move Overhead value 100
+> setoption name Ponder value false
+> isready
+< readyok

@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.nanozero</groupId>
+        <artifactId>nanozero-parent</artifactId>
+        <version>1.5.0</version>
+    </parent>
+
+    <artifactId>nanozero-sprt</artifactId>
+    <version>1.5.0</version>
+    <packaging>jar</packaging>
+
+    <name>NanoZero SPRT</name>
+    <description>
+        Tournament SPRT (Sequential Probability Ratio Test) en pur Java.
+        Lance N games engine-vs-engine in-process (pas de subprocess UCI),
+        calcule LLR + bornes H1/H0, sample opening book EPD, écrit PGN.
+        Replace fastchess pour les besoins de validation inter-générations
+        AlphaZero. Cf. SPEC-sprt.md §1.
+    </description>
+
+    <dependencies>
+        <!-- Compile : engine (API async). board + nn viennent en transitive. -->
+        <dependency>
+            <groupId>org.nanozero</groupId>
+            <artifactId>nanozero-engine</artifactId>
+            <version>1.5.0</version>
+        </dependency>
+
+        <!-- Test scope -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <release>25</release>
+                </configuration>
+            </plugin>
+
+            <!-- Surefire : argLine 'add-modules jdk.incubator.vector' requis dès qu'un test
+                 instancie Network (chargement transitive Vector API depuis nn). Cohérent avec
+                 nanozero-uci. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>--add-modules jdk.incubator.vector ${argLine}</argLine>
+                </configuration>
+            </plugin>
+
+            <plugin>
+                <groupId>com.diffplug.spotless</groupId>
+                <artifactId>spotless-maven-plugin</artifactId>
+            </plugin>
+
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+            </plugin>
+
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <!-- GameRunner exclus de la coverage check phase 3 : intègre Engine cold-start
+                     (ONNX session load) qui rend les tests game-from-startpos non-déterministes.
+                     Validation complète via Tournament integration tests en Phase 6. -->
+                <configuration>
+                    <excludes>
+                        <exclude>**/GameRunner.class</exclude>
+                    </excludes>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

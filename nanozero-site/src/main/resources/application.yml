@@ -1,0 +1,50 @@
+# Configuration commune (profils dev/prod surchargent). cf. backend-persistance-parties.md §6.
+spring:
+  application:
+    name: nanozero-site
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/nanozero?currentSchema=site}
+    username: ${SPRING_DATASOURCE_USERNAME:nanozero}
+    password: ${SPRING_DATASOURCE_PASSWORD:changeme}
+    hikari:
+      maximum-pool-size: 5            # VPS modeste, pas de pic
+      connection-timeout: 3000
+  jpa:
+    hibernate:
+      ddl-auto: validate             # Flyway gère le DDL ; Hibernate valide seulement
+    open-in-view: false
+  flyway:
+    enabled: true
+    schemas: site                    # Flyway crée le schéma 'site' s'il n'existe pas
+    default-schema: site
+    locations: classpath:db/migration
+    clean-disabled: true             # jamais de drop accidentel
+
+server:
+  port: 8080
+  servlet:
+    context-path: /api/site          # → les controllers mappent /games, /info
+  forward-headers-strategy: native   # lit l'IP réelle derrière Caddy (rate-limit). IP JAMAIS persistée.
+  tomcat:
+    max-http-form-post-size: 64KB
+    max-swallow-size: 64KB
+
+# Paramètres applicatifs (cf. SiteProperties).
+nanozero:
+  site:
+    network-version: ${NANOZERO_SITE_NETWORK_VERSION:gen-031}
+    calibration-version: ${NANOZERO_SITE_CALIBRATION_VERSION:1}
+    cors-origins: ${NANOZERO_SITE_CORS_ORIGINS:https://nanozero.org}
+    rate-limit:
+      post-per-minute: ${NANOZERO_SITE_RATE_LIMIT_POST_PER_MINUTE:10}
+      get-per-minute: ${NANOZERO_SITE_RATE_LIMIT_GET_PER_MINUTE:60}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      probes:
+        enabled: true

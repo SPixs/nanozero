@@ -1,0 +1,143 @@
+# Caddy — façade TLS automatique (Let's Encrypt) + front statique + reverse-proxy API.
+# Prérequis : nanozero.org (A + AAAA) doit pointer sur ce VPS pour l'émission du certificat.
+#
+# Frontière stable (D10) : tout l'accès backend passe par /api/v1/* (chemin versionné).
+# handle_path retire le préfixe → le jobserver voit /jobs, /stats, /selfplay, /admin à sa racine.
+# Le jour où le jobserver devient Java+Postgres, on ne change QUE la cible reverse_proxy ci-dessous.
+
+# www -> apex : une seule page canonique (https://nanozero.org).
+www.nanozero.org {
+	redir https://nanozero.org{uri} permanent
+}
+
+nanozero.org {
+	# --- Journal d'accès (stats de trafic). Non rétroactif : ne capture qu'à partir d'ici.
+	# JSON → parsable jq. Fichier dans un volume persistant (survit au recreate du conteneur) ;
+	# rotation 10 MiB × 10 fichiers. Cf. deploy/README.md §« Stats de trafic ».
+	log {
+		output file /var/log/caddy/access.log {
+			roll_size 10MiB
+			roll_keep 10
+		}
+		format json
+	}
+
+	encode zstd gzip
+
+	# --- En-têtes de sécurité globaux (toutes réponses) ---
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+	}
+
+	# --- Politique de cache ---
+	# Le modèle ONNX (~5,8 Mo) est LE coût d'entrée de /play, /analyse et /worker. Son URL est
+	# VERSIONNÉE (/models/<v>/download) → contenu immuable → cache long : plus de re-téléchargement
+	# à chaque visite. /models/current reste frais (c'est lui qui pointe la dernière promo).
+	@model_dl path /api/v1/models/*/download
+	header @model_dl Cache-Control "public, max-age=31536000, immutable"
+	@model_cur path /api/v1/models/current
+	header @model_cur Cache-Control "no-store"
+	# Images/fonts (non hashées mais très stables) : 7 jours.
+	@static_assets path *.png *.jpg *.jpeg *.webp *.ico *.svg *.woff2
+	header @static_assets Cache-Control "public, max-age=604800"
+	# Vendors VERSIONNÉS par le chemin (ex. /vendor/ort-1.20.1/) → immuables (ORT ~33 Mo : wasm compris).
+	@vendor path /vendor/*
+	header @vendor Cache-Control "public, max-age=31536000, immutable"
+	# HTML + bundles JS/CSS non hashés : toujours revalider (ETag → 304, pas de bundle périmé
+	# après un déploiement ; le jour où les bundles seront hashés, passer en immutable).
+	# ⚠️ EXCLUT /vendor/* : sinon ce matcher écrasait le Cache-Control immutable du vendor (les 2 matchaient).
+	@revalidate {
+		path / */ *.html *.js *.css
+		not path /vendor/*
+	}
+	header @revalidate Cache-Control "no-cache"
+
+	# --- Sécurité : la surface CONTRÔLE/MAINTENANCE du jobserver ne doit PAS être publique.
+	# admin (purge/vacuum/checkpoint/storage), contrôle self-play (pause/resume), annulation de jobs.
+	# Les contributeurs (claim/submit/models/stats) et la flotte n'appellent JAMAIS ces routes.
+	# Administration du VPS = via `docker compose exec` (ou un futur tunnel tailnet authentifié).
+	@api_control path /api/v1/admin /api/v1/admin/* /api/v1/selfplay /api/v1/selfplay/* /api/v1/jobs/cancel_pending
+	handle @api_control {
+		respond "Forbidden" 403
+	}
+
+	# --- API contribution versionnée (D10) : claim/submit, modèles, compteurs publics
+	# (flotte CPU/GPU + worker navigateur + futur site). ---
+	handle_path /api/v1/* {
+		reverse_proxy jobserver:8090
+	}
+
+	# --- API site (Spring Boot, D11) : persistance des parties jouées. ---
+	# `handle` (PAS handle_path) → on garde le préfixe : le service a context-path /api/site.
+	handle /api/site/* {
+		reverse_proxy site:8080
+	}
+
+	# --- Worker navigateur (page volontaire) sous /worker/ ---
+	# Isolation cross-origin → crossOriginIsolated=true → SharedArrayBuffer → ORT-Web WASM
+	# multi-cœurs (mode CPU). COEP=credentialless (pas require-corp) : NE casse PAS le CDN ORT
+	# (jsdelivr) ni Google Fonts (chargés cross-origin sans credentials).
+	handle /worker/* {
+		header Cross-Origin-Opener-Policy "same-origin"
+		header Cross-Origin-Embedder-Policy "credentialless"
+		root * /srv/site
+		file_server
+	}
+
+	# --- Surface « Jouer » (Lot P) sous /play/ — 100 % client (échiquier + MCTS + ORT-Web). ---
+	# Mêmes headers d'isolation que /worker/ (SharedArrayBuffer → WASM multi-cœurs ; CDN ORT OK).
+	# handle DÉDIÉ (file_server SANS fallback SPA) : sinon le catch-all renverrait /play/ vers la landing.
+	handle /play/* {
+		header Cross-Origin-Opener-Policy "same-origin"
+		header Cross-Origin-Embedder-Policy "credentialless"
+		root * /srv/site
+		file_server
+	}
+
+	# --- Surface « Analyse » (Lot 1) sous /analyse/ — 100 % client (échiquier + PGN/FEN + MCTS W/D/L). ---
+	# Mêmes headers d'isolation que /play/ (worker ORT-Web + SharedArrayBuffer ; CDN ORT OK).
+	handle /analyse/* {
+		header Cross-Origin-Opener-Policy "same-origin"
+		header Cross-Origin-Embedder-Policy "credentialless"
+		root * /srv/site
+		file_server
+	}
+
+	# --- Page de bench latence (F4, outil interne, non liée depuis la landing) sous /bench/. ---
+	handle /bench/* {
+		header Cross-Origin-Opener-Policy "same-origin"
+		header Cross-Origin-Embedder-Policy "credentialless"
+		root * /srv/site
+		file_server
+	}
+
+	# --- Bench STS (outil interne : force stratégique d'un niveau de jeu) sous /sts/. ---
+	handle /sts/* {
+		header Cross-Origin-Opener-Policy "same-origin"
+		header Cross-Origin-Embedder-Policy "credentialless"
+		root * /srv/site
+		file_server
+	}
+
+	# --- Vendors (ORT auto-hébergé). ⚠️ MÊMES en-têtes d'isolation que /play//analyse//worker :
+	# ORT crée ses workers imbriqués (wasm threaded) depuis /vendor/*.mjs — dans un contexte
+	# crossOriginIsolated (COEP credentialless), la réponse du script de worker DOIT porter le COEP,
+	# sinon net::ERR_BLOCKED_BY_RESPONSE et le chargement du modèle reste figé (incident 2026-07-02). ---
+	handle /vendor/* {
+		header Cross-Origin-Opener-Policy "same-origin"
+		header Cross-Origin-Embedder-Policy "credentialless"
+		root * /srv/site
+		file_server
+	}
+
+	# --- Front statique : landing + assets. PAS de fallback try_files → /index.html :
+	# il transformait toute URL inconnue en HTTP 200 servant la landing (soft-404 → Google
+	# indexe des pages fantômes + pénalité fiabilité). file_server seul → "/" sert index.html
+	# (index de répertoire) et un chemin inconnu renvoie un vrai 404 (cf. revue SEO BMad). ---
+	handle {
+		root * /srv/site
+		file_server
+	}
+}

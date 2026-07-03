@@ -1,0 +1,7 @@
+# Handshake UCI initial.
+> uci
+< id name NanoZero.*
+< id author .*
+< option name Ponder.*
+< option name Move Overhead.*
+< uciok

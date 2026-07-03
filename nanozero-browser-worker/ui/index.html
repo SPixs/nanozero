@@ -1,0 +1,581 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<link rel="icon" type="image/png" href="favicon.png">
+<link rel="stylesheet" href="/assets/fonts/fonts.css">
+<title>NanoZero — contribuer au self-play</title>
+<meta name="description" content="Contribue à l'entraînement de NanoZero : fais tourner du self-play AlphaZero dans ton navigateur. Anonyme, aucun cookie, arrêt immédiat.">
+<link rel="canonical" href="https://nanozero.org/worker/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://nanozero.org/worker/">
+<meta property="og:site_name" content="NanoZero">
+<meta property="og:locale" content="fr_FR">
+<meta property="og:title" content="Contribuer à l'entraînement de NanoZero — self-play navigateur">
+<meta property="og:description" content="Fais tourner du self-play AlphaZero dans ton navigateur pour entraîner NanoZero. Anonyme, sans installation, sans cookie.">
+<meta property="og:image" content="https://nanozero.org/assets/logo/logo-primary-dark.png">
+<meta name="twitter:card" content="summary_large_image">
+<style>
+  :root {
+    --bg:#0b0e14; --fg:#cdd6f4; --muted:#9aa3b2; --accent:#89b4fa; --ok:#a6e3a1; --warn:#f38ba8;
+    --panel:#181825; --line:#313244; --light:#f0d9b5; --dark:#b58863;
+    /* v3 — fil conducteur or (ambre échiquéen) */
+    --gold:#c9a96e; --gold-dim:rgba(201,169,110,.12); --gold-line:rgba(201,169,110,.28);
+    /* v3 — profondeur */
+    --panel-raised:#1e2130; --panel-sunken:#13151f;
+    --shadow-card:0 4px 16px rgba(0,0,0,.55), 0 1px 3px rgba(0,0,0,.35);
+    --shadow-hover:0 8px 28px rgba(0,0,0,.7), 0 2px 6px rgba(0,0,0,.5);
+    /* v3 — arrondis homogènes */
+    --r-sm:6px; --r-md:10px; --r-lg:14px;
+    /* brand kit V1 — utilisés LOCALEMENT par la jauge collective (ne remplace pas --gold global) */
+    --mint:#7EDC9A; --brand-gold:#D4AF37; --brand-blue:#6EA8FF;
+    --fdisp:"Space Grotesk",Inter,system-ui,sans-serif; --fmono:"JetBrains Mono",ui-monospace,monospace;
+  }
+  * { box-sizing:border-box; }
+  body { font-family:'Inter',system-ui,-apple-system,"Segoe UI",Roboto,sans-serif; margin:0; background:var(--bg);
+         color:var(--fg); font-size:15px; line-height:1.6; -webkit-font-smoothing:antialiased; text-rendering:optimizeLegibility;
+         overflow-x:clip; }  /* le décor .hero::before (inset:-2rem) débordait de 16px sur mobile */
+  main { max-width:1100px; margin:0 auto; padding:2rem 1.5rem 3rem; }
+  a { color:var(--accent); }
+  /* icônes Lucide (ISC) en sprite <symbol> — teintées via currentColor */
+  .icon { width:1em; height:1em; stroke:currentColor; fill:none; stroke-width:2; stroke-linecap:round; stroke-linejoin:round; flex-shrink:0; }
+  :focus-visible { outline:2px solid var(--gold); outline-offset:3px; border-radius:4px; }
+  ::-webkit-scrollbar { width:6px; height:6px; }
+  ::-webkit-scrollbar-track { background:var(--bg); }
+  ::-webkit-scrollbar-thumb { background:var(--line); border-radius:3px; }
+  ::-webkit-scrollbar-thumb:hover { background:var(--muted); }
+
+  /* ---- HERO + identité ---- */
+  .hero { position:relative; padding:1rem 0 .5rem; }
+  .hero::before { content:''; position:absolute; inset:-2rem -2rem 0; pointer-events:none; z-index:0;
+    background:radial-gradient(ellipse 70% 60% at 20% -10%, rgba(201,169,110,.10) 0%, transparent 70%),
+               radial-gradient(ellipse 50% 70% at 85% 25%, rgba(137,180,250,.07) 0%, transparent 65%); }
+  .hero::after { content:''; position:absolute; inset:0; pointer-events:none; z-index:0;
+    background-image:conic-gradient(rgba(201,169,110,.03) 0deg 90deg, transparent 90deg 180deg,
+                     rgba(201,169,110,.03) 180deg 270deg, transparent 270deg);
+    background-size:42px 42px;
+    mask-image:linear-gradient(to bottom, transparent 0%, rgba(0,0,0,.55) 35%, transparent 100%);
+    -webkit-mask-image:linear-gradient(to bottom, transparent 0%, rgba(0,0,0,.55) 35%, transparent 100%); }
+  .hero > * { position:relative; z-index:1; }
+
+  .wordmark { display:flex; align-items:center; gap:.6rem; font-size:1.95rem; font-weight:800; letter-spacing:-.03em; margin:0 0 .6rem; line-height:1; }
+  .logo-knight { flex-shrink:0; filter:drop-shadow(0 0 7px rgba(201,169,110,.5)); }
+  .wordmark-text { background:linear-gradient(135deg, #f0d9b5 0%, var(--gold) 55%, var(--accent) 100%);
+    -webkit-background-clip:text; background-clip:text; -webkit-text-fill-color:transparent; color:var(--gold); }
+
+  .pitch { font-size:1.05rem; font-weight:400; line-height:1.65; margin:0 0 1rem; max-width:44rem; } .pitch b { color:var(--gold); }
+  .trust { list-style:none; padding:0; margin:0 0 1.1rem; display:flex; flex-wrap:wrap; gap:.35rem 1.4rem; max-width:50rem; color:var(--muted); font-size:.88rem; }
+  .trust li { display:inline-flex; align-items:center; gap:.4rem; } .trust li b { color:var(--fg); } .trust .icon { color:var(--gold); }
+  .hero.compact .pitch, .hero.compact .trust { display:none; }
+
+  .cta-row { display:flex; gap:.75rem; align-items:center; flex-wrap:wrap; margin-bottom:1rem; }
+  .cta-row button { display:inline-flex; align-items:center; gap:.5rem; }
+  #btn-start { background:linear-gradient(135deg, #a6e3a1 0%, #94d9a0 100%); color:#0b0e14; font-weight:800; font-size:1.05rem;
+    padding:.75rem 2rem; border:0; border-radius:var(--r-md); cursor:pointer; letter-spacing:.01em;
+    box-shadow:0 2px 12px rgba(166,227,161,.25), 0 1px 3px rgba(0,0,0,.3); transition:transform .15s, box-shadow .15s, filter .15s; }
+  #btn-start:hover:not(:disabled) { transform:translateY(-2px); box-shadow:0 6px 20px rgba(166,227,161,.35), 0 2px 6px rgba(0,0,0,.4); filter:brightness(1.08); }
+  #btn-start:active:not(:disabled) { transform:none; }
+  #btn-pause { background:transparent; color:var(--fg); border:1px solid var(--line); font-weight:600; padding:.55rem 1.1rem; border-radius:var(--r-md); cursor:pointer; transition:background .15s, border-color .15s; display:inline-flex; align-items:center; gap:.5rem; }
+  #btn-pause:hover:not(:disabled) { background:var(--gold-dim); border-color:var(--gold-line); }
+  #btn-stop { background:transparent; color:var(--warn); border:1px solid var(--warn); font-weight:600; padding:.55rem 1.1rem; border-radius:var(--r-md); cursor:pointer; transition:background .15s; }
+  #btn-stop:hover:not(:disabled) { background:rgba(243,139,168,.12); }
+  button:disabled { opacity:.4; cursor:not-allowed; }
+
+  /* ---- Sélecteur de mode Éco/Normal/Max (STORY-010 AC-1/AC-2) ----------------------------------
+     Marque V1 EN LOCAL (n'écrase pas --gold global) : mode actif = fond or translucide
+     rgba(212,175,55,.14) + texte or #D4AF37 (canon §9). Éco et Max sont AFFICHÉS DÉSACTIVÉS
+     (throttle GPU pas implémenté) → on ne simule jamais un comportement inexistant (canon §5). */
+  .modes { --s10-gold:#D4AF37; --s10-gold-dim:rgba(212,175,55,.14);
+    display:inline-flex; border:1px solid var(--line); border-radius:var(--r-md); overflow:hidden; }
+  .modes button { font:inherit; font-size:.78rem; padding:.4rem .7rem; border:0; background:transparent;
+    color:var(--muted); cursor:pointer; transition:background .12s, color .12s; }   /* AC-3 : feedback < 500 ms (transition courte) */
+  .modes button:hover:not(:disabled):not(.on) { color:var(--fg); }
+  .modes button.on { background:var(--s10-gold-dim); color:var(--s10-gold); font-weight:600; }
+  .modes button:disabled { opacity:.45; cursor:not-allowed; }   /* verrouillé pendant une session (réglable à l'arrêt) */
+  .howto { font-size:.8rem; color:var(--muted); }   /* AC-9 : lien « Comment ça marche ? » */
+  .mode-note { font-size:.78rem; color:var(--muted); font-style:italic; }   /* STORY-010 : effet du mode (au démarrage / personnalisé) */
+  /* « Re-calibrer ma machine » : bouton discret (bordure bleue = navigation), désactivé à l'arrêt seulement. */
+  .recalib { font:inherit; font-size:.78rem; padding:.4rem .7rem; border:1px solid var(--line);
+    background:transparent; color:var(--brand-blue); border-radius:7px; cursor:pointer; transition:border-color .12s; }
+  .recalib:hover:not(:disabled) { border-color:var(--brand-blue); }
+  .recalib:disabled { opacity:.45; cursor:not-allowed; }   /* en RUNNING/PAUSED → arrêter pour re-calibrer */
+  @media (prefers-reduced-motion:reduce) {
+    .modes button { transition:none; }
+  }
+
+  /* ---- Avertissements énergie (edge-cases laptop) — discrets, sous le sélecteur de mode -----------
+     UNE seule zone #energy-warn (aria-live) ; chaque note se montre/cache indépendamment. Non
+     bloquant, data-neutre. Ton muted par défaut ; ambre doux pour la chaleur du mode Max (cf. .warn). */
+  .energy-warn { display:flex; flex-direction:column; gap:.3rem; }
+  .energy-note { margin:.45rem 0 0; font-size:.82rem; color:var(--muted);
+    display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; }
+  .energy-note[hidden] { display:none; }
+  .energy-note.heat { color:#f4b740; }   /* Max = chaleur → ambre doux (même teinte que .warn) */
+  .energy-note .eco-link { font:inherit; font-size:.8rem; padding:.2rem .55rem; cursor:pointer;
+    background:transparent; color:var(--brand-blue); border:1px solid var(--line); border-radius:var(--r-sm);
+    transition:border-color .12s; }
+  .energy-note .eco-link:hover { border-color:var(--brand-blue); }
+
+  /* ---- Avancé ---- */
+  details.adv summary { cursor:pointer; color:var(--muted); font-size:.9rem; margin-bottom:.6rem; width:fit-content; }
+  details.adv label { display:inline-flex; gap:.4rem; align-items:center; margin:0 1rem .5rem 0; color:var(--muted); font-size:.88rem; }
+  input { font:inherit; background:var(--panel-sunken); color:var(--fg); border:1px solid var(--line); border-radius:var(--r-sm); padding:.35rem .5rem; }
+  input#baseUrl { width:min(18rem,100%); } input#pool, input#sims, input#boards { width:5rem; }
+
+  /* ---- Bench de calibration (STORY-014) — jauge « speedtest » -----------------------------------
+     Affichée AU 1er LANCEMENT (pas de nz_calib) AVANT le 1er Démarrer : un anneau SVG se remplit
+     (progression), un gros chiffre pos/s grimpe au centre, libellé « Calibration… X% », puis le
+     résultat se fige. Marque V1 (canon §9) : or = valeur (le chiffre pos/s), menthe = progression
+     (l'anneau), bleu = navigation (boutons secondaires). Masquée par défaut ([hidden]). */
+  #calib { display:flex; gap:1.6rem 2rem; align-items:center; flex-wrap:wrap; margin:1.4rem 0 1.2rem;
+    padding:1.3rem 1.4rem; background:var(--panel); border:1px solid var(--line);
+    border-left:3px solid var(--brand-gold); border-radius:0 var(--r-lg) var(--r-lg) 0;
+    animation:fadein .35s ease; }  /* marge basse : sur mobile la carte touchait le bouton Démarrer */
+  #calib[hidden] { display:none; }
+  .calib-gauge { position:relative; width:170px; height:170px; flex:0 0 auto; }
+  .calib-gauge svg { width:100%; height:100%; transform:rotate(-90deg); }       /* 0% en haut */
+  .calib-track { fill:none; stroke:var(--panel-sunken); stroke-width:12; }
+  .calib-fill { fill:none; stroke:var(--mint); stroke-width:12; stroke-linecap:round;
+    transition:stroke-dashoffset .5s cubic-bezier(.22,.61,.36,1); }
+  .calib-center { position:absolute; inset:0; display:flex; flex-direction:column;
+    align-items:center; justify-content:center; text-align:center; pointer-events:none; }
+  .calib-pps { font-family:var(--fmono); font-size:1.9rem; font-weight:700; color:var(--brand-gold);
+    line-height:1; font-variant-numeric:tabular-nums; }                          /* or = valeur (le débit) */
+  .calib-unit { font-size:.7rem; color:var(--muted); text-transform:uppercase; letter-spacing:.08em; margin-top:.25rem; }
+  .calib-body { flex:1; min-width:15rem; }
+  .calib-body h2 { font-family:var(--fdisp); font-size:1.25rem; font-weight:600; margin:0 0 .35rem; letter-spacing:-.01em; }
+  .calib-progress { color:var(--mint); font-family:var(--fmono); font-size:.95rem; margin:0 0 .6rem; }
+  .calib-result { color:var(--fg); font-size:.95rem; margin:0 0 .6rem; }
+  .calib-result b { color:var(--brand-gold); }                                   /* « N pos/s » = valeur (or) */
+  .calib-result[hidden] { display:none; }
+  .calib-actions { display:flex; gap:.7rem; flex-wrap:wrap; }
+  .calib-actions button { font:inherit; font-size:.9rem; font-weight:600; padding:.5rem 1rem;
+    border-radius:var(--r-md); cursor:pointer; transition:filter .15s, background .15s, border-color .15s; }
+  #calib-start { background:var(--mint); border:1px solid var(--mint); color:#0b0e14; }
+  #calib-start:hover:not(:disabled) { filter:brightness(1.08); }
+  #calib-skip, #calib-redo { background:transparent; color:var(--brand-blue); border:1px solid var(--line); }  /* navigation = bleu */
+  #calib-skip:hover, #calib-redo:hover { border-color:var(--brand-blue); }
+  .calib-actions button:disabled { opacity:.45; cursor:not-allowed; }
+  @media (prefers-reduced-motion:reduce) {
+    #calib { animation:none; }
+    .calib-fill { transition:none; }   /* AC-3 : pas d'animation continue (l'anneau saute à la valeur) */
+  }
+  @media (max-width:560px) {
+    #calib { justify-content:center; }
+    .calib-gauge { width:140px; height:140px; }
+  }
+
+  /* ---- Jauge collective (STORY-002) — chapitre « Ensemble vers gen-N » ---- */
+  /* Masquée par défaut : ne s'affiche QUE si /stats/season répond (dégradation gracieuse, AC-4). */
+  #collective { display:none; margin-top:1.4rem; padding-top:1.4rem; border-top:1px solid var(--line); }
+  #collective.on { display:block; animation:fadein .35s ease; }
+  .gauge-head { display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:.4rem .9rem; }
+  .gauge-head h2 { font-family:var(--fdisp); font-size:1.25rem; font-weight:600; margin:0; letter-spacing:-.01em; }
+  #target-gen { color:var(--mint); }
+  .gauge-pct { font-family:var(--fdisp); font-size:2.1rem; font-weight:700; color:var(--mint); font-variant-numeric:tabular-nums; line-height:1; }
+  .bar { height:12px; border-radius:7px; background:var(--panel-sunken); overflow:hidden; margin:.65rem 0 .55rem; box-shadow:inset 0 0 0 1px rgba(0,0,0,.3); }
+  .bar > i { display:block; height:100%; width:0; border-radius:7px;
+    background:linear-gradient(90deg,#5fc888,var(--mint)); transition:width .8s cubic-bezier(.22,.61,.36,1); }
+  .gauge-sub { color:var(--muted); font-size:.9rem; font-family:var(--fmono); }
+  .gauge-sub b { color:var(--fg); font-weight:600; }
+  @media (prefers-reduced-motion:reduce) {
+    .bar > i { transition:none; }       /* AC-7 : pas d'animation de remplissage (la valeur reste visible) */
+    #collective.on { animation:none; }
+  }
+
+  /* ---- Bandeau de promotion (STORY-003) — « ce qui a changé pendant ton absence » ----
+     Discret, accent BLEU (info, pas alerte rouge) : bordure gauche bleue + fond panneau neutre,
+     comme le .banner du mockup. Masqué par défaut ([hidden]) → ne prend AUCUNE place dans le flux
+     tant qu'aucune promotion n'est survenue depuis la dernière visite (AC-2). */
+  .promo-banner { display:flex; gap:.7rem; align-items:center; margin-top:1.4rem;
+    background:var(--panel); border:1px solid var(--line); border-left:2px solid var(--brand-blue);
+    border-radius:0 var(--r-md) var(--r-md) 0; padding:.7rem .9rem; font-size:.92rem;
+    animation:fadein .35s ease; }
+  .promo-banner[hidden] { display:none; }                 /* AC-2 : aucun placeholder vide */
+  .promo-banner .promo-body { flex:1; min-width:0; }
+  .promo-banner b { color:var(--brand-blue); }
+  .promo-banner small { color:var(--muted); }
+  .promo-banner a { color:var(--brand-blue); white-space:nowrap; }
+  .promo-x { margin-left:auto; border:0; background:none; color:var(--muted); font-size:1.25rem;
+    line-height:1; cursor:pointer; padding:0 .15rem; }
+  .promo-x:hover { color:var(--fg); }
+  @media (prefers-reduced-motion:reduce) {
+    .promo-banner { animation:none; }     /* AC-6 : pas d'animation d'entrée si reduced-motion */
+  }
+
+  /* ---- Zone LIVE ---- */
+  .live { display:none; margin-top:1.6rem; border-top:1px solid var(--line); padding-top:1.5rem; }
+  .live.on { display:block; animation:fadein .35s ease; }
+  @keyframes fadein { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
+  .alert { background:var(--warn); color:#0b0e14; padding:.6rem 1rem; border-radius:var(--r-md); margin-bottom:1rem;
+           font-weight:600; display:flex; justify-content:space-between; gap:1rem; align-items:center; }
+  .alert.info { background:#6ec9d4; } .alert[hidden] { display:none; }
+  .alert button { background:none; border:0; color:#0b0e14; font-size:1.2rem; cursor:pointer; line-height:1; }
+
+  .stats { display:flex; gap:1rem 2rem; flex-wrap:wrap; align-items:center; margin-bottom:1.2rem; }
+  .stat { font-size:.88rem; color:var(--muted); display:inline-flex; align-items:center; gap:.35rem; } .stat b { color:var(--fg); font-weight:600; font-variant-numeric:tabular-nums; } .stat .icon { color:var(--accent); }
+  .gridhead { color:var(--muted); font-size:.85rem; margin:.2rem 0 .9rem; }
+
+  /* ---- Flux de contribution (STORY-004/005) — chapitre « Ma contribution » ---------------------
+     UNE composition (envoyées → vérifiées → en cours) + cumul navigateur + impact, PAS 4 cartes KPI.
+     Mode shippable = DÉGRADÉ (STORY-005) : tant que le serveur ne renvoie pas de comptage VÉRIFIÉ par
+     session, on n'affiche QUE « soumis · en attente de vérification » (neutre) — jamais d'or trompeur.
+     Le mode complet (.flow.full) ne s'active que sur un comptage serveur réel (validated >= 0). */
+  .contrib { margin-left:auto; }
+  .flow { display:flex; align-items:center; gap:1rem; flex-wrap:wrap; }
+  .flow .step { text-align:center; }
+  .flow .num { font-family:var(--fmono); font-size:1.7rem; font-weight:700; line-height:1; font-variant-numeric:tabular-nums; }
+  .flow .lbl { font-size:.72rem; color:var(--muted); margin-top:.25rem; text-transform:uppercase; letter-spacing:.05em; }
+  /* envoyées + en cours = neutre (jamais célébrés) ; vérifiées = or UNIQUEMENT en mode complet (AC-2). */
+  .flow .sent .num { color:var(--fg); }
+  .flow .ver  .num { color:var(--muted); }   /* neutre par défaut ; passe à l'or via .flow.full (AC-2) */
+  .flow .pend .num { color:var(--muted); }
+  .flow.full .ver .num { color:var(--brand-gold); }
+  .flow .arrow { color:var(--muted); font-size:1.2rem; opacity:.55; }
+  /* mode dégradé : seul #flow-sent visible, libellé « soumis · en attente » (AC-1/AC-2 STORY-005). */
+  .flow:not(.full) .arrow, .flow:not(.full) .ver, .flow:not(.full) .pend { display:none; }
+  .contrib-foot { margin-top:.75rem; color:var(--muted); font-size:.88rem; text-align:right; }
+  .contrib-foot .tot { color:var(--brand-blue); font-family:var(--fmono); }     /* cumul navigateur en bleu (AC-6) */
+  .contrib-foot .impact { color:var(--mint); }                                  /* impact tangible en menthe (AC-5) */
+  /* Flash or : 300 ms, UNIQUEMENT quand « vérifiées » augmente (AC-3). Jamais en boucle, jamais au chargement. */
+  @keyframes flash-gold { from { color:var(--brand-gold); text-shadow:0 0 10px rgba(212,175,55,.55); } to { text-shadow:none; } }
+  .flow.full .ver .num.flash-gold { animation:flash-gold .3s ease-out; }
+  @media (prefers-reduced-motion:reduce) {
+    .flow.full .ver .num.flash-gold { animation:none; }   /* AC-4 : pas de flash, la valeur reste à jour */
+  }
+
+  /* ---- Identité (STORY-009) — 3 états non mélangés -------------------------------------------
+     Pseudo en header (état "identified_contributor") : DISCRET, or léger (Dev Notes) — pas
+     d'avatar, pas d'image. #identity-state (wrapper aria-live) n'occupe aucune place quand le
+     pseudo est masqué. L'invitation anonyme (#anon-invite, état "anonymous_contributor") est un
+     texte discret/muted sous le flux — distinct du nudge intrusif (STORY-008). */
+  #identity-state:has(#identity-pseudo[hidden]) { display:none; }   /* zone vide → aucune place réservée */
+  #identity-pseudo { color:var(--gold); font-weight:600; }
+  #identity-pseudo[hidden] { display:none; }
+  #identity-pseudo::before { content:"♟ "; color:var(--gold); opacity:.85; }
+  .anon-invite { margin:.6rem 0 0; color:var(--muted); font-size:.86rem; }
+  .anon-invite[hidden] { display:none; }
+
+  /* ---- Nudge pseudo (STORY-008) — barre fine sur engagement ----------------------------------
+     Barre fine, fond neutre (PAS une carte héroïque, discipline des surfaces canon §4) : bordure
+     gauche or + fond panneau, comme le .nudge du mockup v1-volunteer-page.html. Masqué par défaut
+     ([hidden]) → ne prend AUCUNE place tant que checkNudgeTrigger() ne l'a pas révélé. « Plus tard »
+     a le MÊME poids visuel que Confirmer (AC-4) : même taille, même padding, libellés côte à côte. */
+  .nudge { display:flex; align-items:center; gap:.7rem; flex-wrap:wrap; margin:1.4rem 0 0;
+    background:var(--panel); border:1px solid var(--line); border-left:3px solid var(--gold);
+    border-radius:0 var(--r-md) var(--r-md) 0; padding:.7rem .9rem; font-size:.92rem;
+    animation:fadein .35s ease; }
+  .nudge[hidden] { display:none; }                 /* AC : aucun placeholder vide tant que non déclenché */
+  .nudge .mk { font-size:1.2rem; color:var(--gold); }
+  .nudge .nudge-txt { flex:1; min-width:14rem; }
+  .nudge .nudge-txt b { color:var(--gold); }
+  .nudge .nudge-txt small { color:var(--muted); display:block; margin-top:.15rem; }
+  .nudge input { font:inherit; padding:.45rem .6rem; min-width:11rem;
+    background:var(--panel-sunken); color:var(--fg); border:1px solid var(--line); border-radius:var(--r-sm); }
+  .nudge input.invalid { border-color:var(--warn); }
+  /* AC-4 : « Plus tard » aussi visible que Confirmer — MÊME taille/padding/poids. Seules les couleurs
+     diffèrent (CTA or rempli vs neutre bordé), pas la prééminence visuelle. */
+  .nudge button { font:inherit; font-size:.9rem; font-weight:600; padding:.45rem .9rem;
+    border-radius:var(--r-sm); cursor:pointer; border:1px solid var(--line); }
+  .nudge #nudge-confirm { background:var(--gold); border-color:var(--gold); color:#0b0e14; }
+  .nudge #nudge-confirm:hover { filter:brightness(1.08); }
+  .nudge #nudge-later { background:transparent; color:var(--fg); }
+  .nudge #nudge-later:hover { background:var(--gold-dim); border-color:var(--gold-line); }
+  .nudge-error { flex-basis:100%; color:var(--warn); font-size:.82rem; margin:0; }
+  .nudge-error[hidden] { display:none; }
+  /* Message de confirmation post-choix (AC-6) : ton neutre/info, même surface fine. */
+  .nudge-confirm-msg { margin:1.4rem 0 0; background:var(--panel); border:1px solid var(--line);
+    border-left:3px solid var(--mint); border-radius:0 var(--r-md) var(--r-md) 0; padding:.7rem .9rem;
+    font-size:.9rem; color:var(--muted); animation:fadein .35s ease; }
+  .nudge-confirm-msg[hidden] { display:none; }
+  @media (prefers-reduced-motion:reduce) {
+    .nudge, .nudge-confirm-msg { animation:none; }   /* AC-8 : pas d'animation d'entrée si reduced-motion */
+  }
+
+  /* ---- Grille + mini-échiquiers (cœur visuel) ---- */
+  #grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(240px,1fr)); gap:1.1rem; transition:opacity .4s, filter .4s; }
+  #grid.stopped { opacity:.35; filter:grayscale(70%) blur(.5px); pointer-events:none; }
+  .card { background:var(--panel-raised); border:1px solid var(--line); border-radius:var(--r-lg); padding:.6rem;
+          box-shadow:var(--shadow-card); transition:transform .2s, box-shadow .2s, border-color .2s; animation:card-appear .25s ease both; }
+  .card:hover { transform:translateY(-3px); box-shadow:var(--shadow-hover); border-color:var(--gold-line); }
+  @keyframes card-appear { from { opacity:0; transform:translateY(10px) scale(.97); } to { opacity:1; transform:none; } }
+  .label { font-size:.74rem; letter-spacing:.02em; color:var(--muted); margin-bottom:.4rem; }
+  .boardrow { display:flex; gap:.5rem; align-items:stretch; }
+  .evalbar { flex:0 0 8px; display:flex; flex-direction:column; border-radius:var(--r-sm); overflow:hidden; box-shadow:inset 0 0 0 1px rgba(0,0,0,.3); }
+  .evalbar .ev { width:100%; transition:height .25s ease; }
+  .ev-w { background:linear-gradient(to bottom, #f5f5ef, #e8e0d0); } /* Blancs (bas) — blanc chaud */
+  .ev-d { background:#6ec9d4; }                                       /* nulle (milieu) — cyan riche */
+  .ev-l { background:linear-gradient(to top, #2a2d3e, #383b4e); }     /* Noirs (haut) — gris profond */
+  /* barre de « réflexion » SOUS l'échiquier : progression de la recherche du coup courant (data-neutre) */
+  .think-bar { height:4px; margin-top:.45rem; background:var(--line); border-radius:3px; overflow:hidden; }
+  .think-fill { height:100%; width:0; background:linear-gradient(90deg, var(--accent), var(--mint)); transition:width .2s linear; }
+  .board { display:grid; grid-template-columns:repeat(8,1fr); grid-template-rows:repeat(8,1fr); aspect-ratio:1; flex:1 1 auto; min-width:0;
+           border-radius:var(--r-sm); overflow:hidden; box-shadow:inset 0 0 0 1px rgba(0,0,0,.25); }
+  .sq { background-size:contain; background-position:center; background-repeat:no-repeat; }
+  .sq.light { background-color:var(--light); } .sq.dark { background-color:var(--dark); }
+
+  /* ---- Échiquier primaire + feedback de vérification (STORY-006) ------------------------------
+     Le board 0 (slot 0) est « relié » au feedback du volontaire (canon §2) : il flash VERT MENTHE
+     (#7EDC9A, marque V1) UNIQUEMENT à une nouvelle vérification — jamais en boucle, jamais au
+     chargement (AC-3). Marque EN LOCAL (--s6-mint, n'écrase pas --gold/--mint globaux). Le flash
+     s'applique au DOM d'une card DÉJÀ créée (ne déclenche pas de re-render, cf. flashPrimaryBoard).
+     Au repos, la card primaire est neutre — l'anneau menthe n'apparaît que pendant le flash. */
+  .primary-board { --s6-mint:#7EDC9A; }
+  .board-verified { box-shadow:0 0 0 3px #7EDC9A; transition:box-shadow 1.4s ease-out; }
+  .primary-board .label.verified { color:var(--s6-mint); }
+  @media (prefers-reduced-motion:reduce) {
+    .board-verified { box-shadow:none; transition:none; }   /* AC-4 : pas de flash, seul le texte/position se met à jour */
+  }
+
+  /* ---- Mobile : 1 board + « Voir les 2 autres parties » (STORY-006 AC-1/AC-6) -----------------
+     < 560 px → seul le board 0 visible ; le bouton (toggle CSS PUR, pas de navigation) révèle les
+     autres en posant .is-expanded sur #grid. Caché sur desktop (les 3 boards tiennent dans la grille). */
+  .seemore { display:none; }
+  @media (max-width:560px) {
+    #grid .card:nth-child(n+2) { display:none; }
+    #grid.is-expanded .card:nth-child(n+2) { display:block; }
+    .seemore { display:block; margin-top:.7rem; width:100%; font:inherit; padding:.55rem; cursor:pointer;
+      border:1px solid var(--line); border-radius:var(--r-md); background:var(--panel-raised); color:var(--fg); }
+    .seemore:hover { border-color:var(--gold-line); background:var(--gold-dim); }
+  }
+
+  /* ---- Log + footer ---- */
+  details.logbox { margin-top:1.6rem; }
+  details.logbox summary { cursor:pointer; color:var(--muted); font-size:.85rem; }
+  #log { white-space:pre-wrap; font-family:ui-monospace,monospace; background:var(--panel-sunken); padding:.75rem;
+         border-radius:var(--r-md); font-size:12px; max-height:9rem; overflow:auto; margin-top:.6rem; color:var(--muted); }
+  footer { margin-top:3rem; color:var(--muted); font-size:.82rem; border-top:1px solid var(--line); padding-top:1.2rem;
+           display:flex; justify-content:space-between; align-items:center; flex-wrap:wrap; gap:.5rem 1rem; }
+  /* Footer contextuel (STORY-011) */
+  .foot-status { font-weight:600; }
+  .foot-status.running { color:var(--mint); }                 /* « en cours » = menthe (progression) */
+  .foot-actions { display:inline-flex; gap:1rem; flex-wrap:wrap; }
+  .foot-actions a { color:var(--brand-blue,#6EA8FF); cursor:pointer; }   /* navigation = bleu (sémantique marque) */
+  #footer-links { margin-left:auto; }                         /* liens permanents poussés à droite */
+  #footer-links a { color:inherit; text-decoration:underline; }
+
+  @media (max-width:560px) {
+    /* AC-5 : la jauge occupe toute la largeur et reste lisible sur mobile */
+    .gauge-head { justify-content:flex-start; }
+    .gauge-pct { font-size:1.8rem; }
+    .gauge-sub { font-size:.84rem; }
+    /* STORY-004 AC-7 : la composition du flux passe en colonne centrée sur mobile. */
+    .flow { justify-content:center; flex-direction:column; gap:.5rem; }
+    .flow .arrow { transform:rotate(90deg); }
+    .contrib-foot { text-align:center; }
+  }
+  @media (max-width:480px) {
+    main { padding:1.2rem 1rem 2rem; }
+    .wordmark { font-size:1.55rem; } .pitch { font-size:1rem; }
+    .stats { flex-direction:column; align-items:flex-start; gap:.5rem; } .contrib { margin-left:0; width:100%; }
+  }
+  .warn { display:block; margin:.2rem 0 0; color:#f4b740; font-size:12px; }
+
+  /* ---- Stabilité du layout : anti-reflow quand le texte dynamique change (revue UX BMad 2026-06) ----
+     Le texte des compteurs/statuts varie en longueur à l'exécution → sans garde, les éléments wrappent
+     ou réorganisent la rangée flex à chaque maj. On fige largeurs/wrap aux endroits sensibles. */
+  /* Stats composées (Vitesse jusqu'à ~48 car., Statut, Ressources, impact) : jamais wrapper. */
+  #pps, #status, #hw, #flow-impact { white-space:nowrap; }
+  .stats .contrib { flex-shrink:0; }                     /* la compo du flux reste à droite, jamais compressée/wrappée */
+  .stat:has(#pps) { min-width:16rem; flex-shrink:0; }    /* réserve la largeur de "Vitesse" → pas de saut de ligne à chaque tick perf */
+  /* Flux de contribution : compteur multi-chiffres + libellé variable ("soumis · en attente…"↔"envoyées") sans changer de hauteur. */
+  .flow .lbl { white-space:nowrap; }
+  .flow .step { min-width:5rem; }
+  .contrib-foot .tot, .gauge-sub { font-variant-numeric:tabular-nums; }  /* chiffres à chasse fixe → pas de jitter */
+  /* Pause↔Reprendre : réserve la largeur du libellé le plus long (évite le décalage des boutons voisins). */
+  #btn-pause { min-width:8.5rem; justify-content:center; }
+  /* Notes de mode/recalibration : toujours sur leur propre sous-ligne en bas de .cta-row → ne décalent jamais les boutons. */
+  .cta-row .mode-note { order:99; flex-basis:100%; margin:0; }
+</style>
+</head>
+<body>
+<!-- Sprite d'icônes Lucide (ISC) — symboles réutilisés via <use>, teintés par currentColor. cf ui/icons/NOTICE -->
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><symbol id="i-cpu" viewBox="0 0 24 24"><path d="M12 20v2" /><path d="M12 2v2" /><path d="M17 20v2" /><path d="M17 2v2" /><path d="M2 12h2" /><path d="M2 17h2" /><path d="M2 7h2" /><path d="M20 12h2" /><path d="M20 17h2" /><path d="M20 7h2" /><path d="M7 20v2" /><path d="M7 2v2" /><rect x="4" y="4" width="16" height="16" rx="2" /><rect x="8" y="8" width="8" height="8" rx="1" /></symbol><symbol id="i-shield-off" viewBox="0 0 24 24"><path d="m2 2 20 20" /><path d="M5 5a1 1 0 0 0-1 1v7c0 5 3.5 7.5 7.67 8.94a1 1 0 0 0 .67.01c2.35-.82 4.48-1.97 5.9-3.71" /><path d="M9.309 3.652A12.252 12.252 0 0 0 11.24 2.28a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1v7a9.784 9.784 0 0 1-.08 1.264" /></symbol><symbol id="i-github" viewBox="0 0 24 24"><path d="M15 22v-4a4.8 4.8 0 0 0-1-3.5c3 0 6-2 6-5.5.08-1.25-.27-2.48-1-3.5.28-1.15.28-2.35 0-3.5 0 0-1 0-3 1.5-2.64-.5-5.36-.5-8 0C6 2 5 2 5 2c-.3 1.15-.3 2.35 0 3.5A5.403 5.403 0 0 0 4 9c0 3.5 3 5.5 6 5.5-.39.49-.68 1.05-.85 1.65-.17.6-.22 1.23-.15 1.85v4" /><path d="M9 18c-4.51 2-5-2-7-2" /></symbol><symbol id="i-circle" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" /></symbol><symbol id="i-layers" viewBox="0 0 24 24"><path d="M12.83 2.18a2 2 0 0 0-1.66 0L2.6 6.08a1 1 0 0 0 0 1.83l8.58 3.91a2 2 0 0 0 1.66 0l8.58-3.9a1 1 0 0 0 0-1.83z" /><path d="M2 12a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 12" /><path d="M2 17a1 1 0 0 0 .58.91l8.6 3.91a2 2 0 0 0 1.65 0l8.58-3.9A1 1 0 0 0 22 17" /></symbol><symbol id="i-zap" viewBox="0 0 24 24"><path d="M4 14a1 1 0 0 1-.78-1.63l9.9-10.2a.5.5 0 0 1 .86.46l-1.92 6.02A1 1 0 0 0 13 10h7a1 1 0 0 1 .78 1.63l-9.9 10.2a.5.5 0 0 1-.86-.46l1.92-6.02A1 1 0 0 0 11 14z" /></symbol><symbol id="i-play" viewBox="0 0 24 24"><path d="M5 5a2 2 0 0 1 3.008-1.728l11.997 6.998a2 2 0 0 1 .003 3.458l-12 7A2 2 0 0 1 5 19z" /></symbol><symbol id="i-square" viewBox="0 0 24 24"><rect width="18" height="18" x="3" y="3" rx="2" /></symbol><symbol id="i-pause" viewBox="0 0 24 24"><rect x="14" y="3" width="5" height="18" rx="1" /><rect x="5" y="3" width="5" height="18" rx="1" /></symbol></svg>
+<main>
+  <section class="hero" id="hero">
+    <h1 class="wordmark">
+      <img class="logo-knight" src="brand-mark.png" width="36" height="36" alt="" aria-hidden="true">
+      <span class="wordmark-text">NanoZero</span>
+    </h1>
+    <p class="pitch">Offre quelques minutes de ton ordinateur. Ton navigateur <b>joue des parties d'échecs</b> et entraîne une IA open source — comme Folding@home, mais pour un moteur d'échecs.</p>
+    <ul class="trust">
+      <li><svg class="icon"><use href="#i-cpu"/></svg> <b>1 cœur CPU</b> ou ton GPU · arrêt immédiat</li>
+      <li><svg class="icon"><use href="#i-shield-off"/></svg> <b>Coups anonymes</b> · aucune donnée perso, aucun cookie</li>
+      <li><svg class="icon"><use href="#i-github"/></svg> entraîne <b>NanoZero</b>, moteur open source</li>
+    </ul>
+
+    <!-- Bench de calibration — placé ENTRE l'accueil (wordmark/pitch/trust) et la config (contrôles).
+         Auto au 1er lancement ; pendant la mesure, Démarrer/modes/champs sont VERROUILLÉS (setCalibratingLock). -->
+    <section id="calib" aria-live="polite" hidden>
+      <div class="calib-gauge">
+        <svg viewBox="0 0 170 170" aria-hidden="true">
+          <circle class="calib-track" cx="85" cy="85" r="72"></circle>
+          <circle id="calib-fill" class="calib-fill" cx="85" cy="85" r="72"
+                  stroke-dasharray="452.39" stroke-dashoffset="452.39"></circle>
+        </svg>
+        <div class="calib-center">
+          <span class="calib-pps" id="calib-pps">—</span>
+          <span class="calib-unit">pos/s</span>
+        </div>
+      </div>
+      <div class="calib-body">
+        <h2 id="calib-title">Calibre ta machine</h2>
+        <p class="calib-progress" id="calib-progress">Mesure le débit réel de ta machine pour régler Éco / Normal / Max.</p>
+        <p class="calib-result" id="calib-result" hidden></p>
+        <div class="calib-actions">
+          <button id="calib-start" type="button">Calibrer ma machine</button>
+          <button id="calib-skip" type="button">Passer</button>
+          <button id="calib-redo" type="button" hidden>Re-calibrer</button>
+        </div>
+      </div>
+    </section>
+
+    <div class="cta-row">
+      <button id="btn-start"><svg class="icon"><use href="#i-play"/></svg> Démarrer ma contribution</button>
+      <!-- Pause (suspend le calcul, garde la page) vs Arrêter (termine la contribution) — STORY-010 AC-4. -->
+      <button id="btn-pause" type="button"><svg class="icon"><use href="#i-pause"/></svg> <span id="btn-pause-lbl">Pause</span></button>
+      <button id="btn-stop"><svg class="icon"><use href="#i-square"/></svg> Arrêter</button>
+      <!-- Sélecteur de mode énergie (STORY-010 AC-1). Presets RÉELS de charge : chaque mode écrit
+           les knobs « Parties simultanées » + « Leaf-batch » (figés à la session → effet au
+           (re)démarrage). Aucun comportement simulé (canon §5). Normal = défaut. -->
+      <span class="modes" role="group" aria-label="Mode d'énergie">
+        <button id="btn-eco" type="button" aria-pressed="false" title="Charge réduite : 8 parties/worker (machine au frais, batterie ménagée). S'applique au démarrage.">Éco</button>
+        <button id="btn-normal" type="button" class="on" aria-pressed="true" title="Équilibré : 32 parties/worker (défaut).">Normal</button>
+        <button id="btn-max" type="button" aria-pressed="false" title="Charge maximale : 64 parties/worker (débit max, machine sollicitée). S'applique au démarrage.">Max</button>
+      </span>
+      <span id="mode-note" class="mode-note" aria-live="polite"></span>
+      <!-- « Re-calibrer ma machine » : actif UNIQUEMENT à l'arrêt (IDLE/STOPPED). En RUNNING/PAUSED
+           il est désactivé + une note explique pourquoi (cf. renderCalibControls). Clic → efface
+           nz_calib + relance le panneau de calibration. -->
+      <button id="btn-recalib" type="button" class="recalib" title="Re-mesurer le débit de ta machine pour recaler Éco / Normal / Max. À l'arrêt uniquement.">Re-calibrer ma machine</button>
+      <span id="recalib-note" class="mode-note" aria-live="polite"></span>
+      <a id="howto" class="howto" href="#">Comment ça marche&nbsp;?</a>
+    </div>
+
+    <!-- Avertissements énergie (edge-cases laptop) — discrets, NON bloquants, data-neutres : n'affectent
+         NI la recherche NI les données soumises. Une SEULE zone (aria-live) sous le sélecteur de mode ;
+         chaque note se montre/cache indépendamment (cf. app.mjs initEnergyWarnings / renderModeHeatWarning).
+         Le cas « GPU absent » est géré ailleurs (bandeau live #alert). -->
+    <div id="energy-warn" class="energy-warn" role="status" aria-live="polite">
+      <p class="energy-note heat" id="warn-max" hidden>Mode Max : ta machine va chauffer et ventiler davantage.</p>
+      <p class="energy-note" id="warn-battery" hidden>Sur batterie&nbsp;? Le mode Éco ménage ton autonomie.
+        <button type="button" id="warn-battery-eco" class="eco-link">Passer en Éco</button></p>
+      <p class="energy-note" id="warn-cpu" hidden>Peu de cœurs CPU détectés : la contribution sera lente (le GPU reste utilisé s'il est disponible).</p>
+    </div>
+
+    <details class="adv">
+      <summary>Avancé</summary>
+      <label title="Auto-détecté (même origine que cette page). À ne changer que pour un usage cross-origin.">Serveur <input id="baseUrl" value="" placeholder="auto (ce serveur)"></label>
+      <label title="Parties concurrentes PAR worker. Total = (Workers parallèles) × cette valeur. Chaque appel d'inférence fusionne le sous-pool d'un worker. Plus de RAM par partie.">Parties simultanées (par worker) <input id="pool" type="number" value="32" min="1" max="128"></label>
+      <label title="Workers parallèles (K) : nb de Web Workers indépendants, CHACUN avec sa PROPRE session ORT. C'est le LEVIER multi-cœur sur CPU (jusqu'aux cœurs logiques) ; sur GPU, plafonné à 2 (chaque session = mémoire GPU → K>2 = OOM onglet). Le calibrage règle K par mode (Éco/Normal/Max). À fixer AVANT de démarrer.">Workers parallèles (K) <input id="workers" type="number" value="1" min="1" max="2"></label>
+      <small id="kwarn" class="warn" hidden>⚠️ Plus de workers = plus de RAM/sessions dans l'onglet (mémoire GPU sur GPU). Le calibrage borne K au maximum tenable de ta machine ; reviens en arrière si l'onglet rame.</small>
+      <label class="dictated" title="Le budget de recherche (simulations MCTS par coup) est dicté par le serveur (job.num_sims) et n'est PAS réglable côté client — c'est ce qui garantit la qualité des cibles policy soumises (anti-poison). Pour alléger ta machine, joue sur « Parties simultanées » et « Échiquiers affichés ».">Simulations/coup : <strong>dicté par le serveur</strong></label>
+      <label title="Nb d'échiquiers AFFICHÉS (≤ parties). Découplé du débit : on joue beaucoup de parties, on n'en montre que quelques-unes. Appliqué en direct.">Échiquiers affichés <input id="boards" type="number" value="4" min="1" max="128"></label>
+      <label title="Leaf-batching (K) : nb de feuilles que CHAQUE arbre MCTS évalue par vague (virtual-loss). 1 = désactivé (recherche séquentielle). &gt;1 = un seul arbre remplit le batch GPU → bat le plancher WDDM même à peu de parties. À régler AVANT de démarrer (paramètre de session, comme les parties).">Leaf-batch K <input id="wave" type="number" value="8" min="1" max="64"></label>
+    </details>
+  </section>
+
+  <!-- Jauge collective (STORY-002) : progression collective vers gen-N+1. Masquée tant que
+       /stats/season ne répond pas (dégradation gracieuse) — révélée par pollSeasonStats() dans app.mjs. -->
+  <section id="collective" aria-live="polite">
+    <div class="gauge-head">
+      <h2>Ensemble vers gen-<span id="target-gen">…</span></h2>
+      <span class="gauge-pct"><span id="season-pct">…</span>&nbsp;%</span>
+    </div>
+    <div class="bar"><i id="season-bar"></i></div>
+    <div class="gauge-sub" id="season-sub">Chargement…</div>
+  </section>
+
+  <!-- Bandeau « ce qui a changé pendant ton absence » (STORY-003). Placé entre le collectif et la
+       zone live (ordre UX canon : collectif → bandeau → contribution). MASQUÉ par défaut (hidden) :
+       révélé par maybeShowPromoBanner() dans app.mjs UNIQUEMENT si last_promoted_gen > nz_last_seen_gen
+       (promotion survenue depuis la dernière visite). Sinon silence — jamais « rien de nouveau ».
+       Accent BLEU (info, pas alerte), comme le mockup .banner. -->
+  <div class="promo-banner" id="promo-banner" role="status" aria-live="polite" hidden>
+    <div class="promo-body"><span id="promo-text"></span></div>
+    <button class="promo-x" id="promo-close" type="button" aria-label="Fermer le bandeau">×</button>
+  </div>
+
+  <section class="live" id="live">
+    <div class="alert" id="alert" hidden><span id="alert-msg"></span><button id="alert-x" aria-label="Fermer">×</button></div>
+    <div class="stats">
+      <span class="stat"><svg class="icon"><use href="#i-circle"/></svg> Statut : <b id="status" role="status" aria-live="polite">En attente</b></span>
+      <!-- Identité dans le header (STORY-009 T3.1/T3.3) : pseudo actif affiché À DROITE du statut,
+           UNIQUEMENT en état "identified_contributor". Le wrapper #identity-state porte aria-live
+           (T3.3 / AC-6) → les lecteurs d'écran annoncent l'apparition du pseudo. Masqué par défaut
+           (hidden) : aucun pseudo inventé n'est jamais montré à un public/anonyme (AC-5). -->
+      <span class="stat" id="identity-state" aria-live="polite" aria-atomic="true">
+        <span id="identity-pseudo" hidden aria-label="Pseudo actif"></span>
+      </span>
+      <span class="stat"><svg class="icon"><use href="#i-layers"/></svg> Modèle : <b id="mv">—</b></span>
+      <span class="stat"><svg class="icon"><use href="#i-zap"/></svg> Vitesse : <b id="pps" role="status" aria-live="polite">—</b></span>
+      <span class="stat"><svg class="icon"><use href="#i-cpu"/></svg> Ressources : <b id="hw">…</b></span>
+      <!-- Flux de contribution (STORY-004/005). Mode DÉGRADÉ par défaut (.flow sans .full) :
+           seul #flow-sent est visible (« soumis · en attente de vérification ») — voir app.mjs
+           updateContributionFlow(). Passe en mode complet (envoyées → vérifiées → en cours) UNIQUEMENT
+           si/quand le serveur renvoie un comptage vérifié par session (champ session_verified). -->
+      <div class="contrib" aria-live="polite">
+        <div class="flow" id="flow">
+          <div class="step sent"><div class="num" id="flow-sent">0</div><div class="lbl" id="flow-sent-lbl">soumis · en attente</div></div>
+          <div class="arrow" aria-hidden="true">→</div>
+          <div class="step ver"><div class="num" id="flow-verified">0</div><div class="lbl">vérifiées</div></div>
+          <div class="arrow" aria-hidden="true">→</div>
+          <div class="step pend"><div class="num" id="flow-pending">0</div><div class="lbl">en cours de vérification</div></div>
+        </div>
+        <div class="contrib-foot"><span class="tot" id="flow-total">0</span> soumises au total depuis ce navigateur<span id="flow-impact"></span></div>
+      </div>
+    </div>
+
+    <!-- Invitation DISCRÈTE à choisir un pseudo (STORY-009 T3.2 / AC-2), distincte du nudge intrusif
+         (STORY-008) : texte statique sous le flux, sans timer, sans blocage, sans pseudo inventé
+         (AC-5). Affiché UNIQUEMENT en état "anonymous_contributor" (nz_total > 0, pas de pseudo).
+         Masqué par défaut (hidden) → aucune place tant que renderIdentityState() ne l'a pas révélé. -->
+    <p class="anon-invite" id="anon-invite" hidden>Ton travail compte déjà. Choisis un pseudo pour apparaître dans les crédits.</p>
+
+    <!-- Nudge pseudo (STORY-008) : invitation à choisir un pseudo, déclenchée sur l'engagement
+         ressenti (session ≥ 10 min + ≥ 1 soumission, OU 1er retour) — jamais un seuil de volume.
+         Placé APRÈS le flux « Ma contribution » (.flow) et AVANT la grille (#grid), conformément à
+         l'ordre UX (la valeur ressentie précède la demande d'identité). MASQUÉ par défaut (hidden) :
+         révélé par checkNudgeTrigger()/showNudge() dans app.mjs. Une seule fois par appareil
+         (nz_nudge_shown). Jamais affiché si nz_pseudo existe déjà (AC-7). Champ VIDE (AC-3). -->
+    <div class="nudge" id="nudge" role="dialog" aria-label="Choisir un pseudo" hidden>
+      <span class="mk" aria-hidden="true">♞</span>
+      <div class="nudge-txt">
+        <span id="nudge-msg"></span>
+        <small>Optionnel, sans compte ni email. Pseudo public, non exclusif.</small>
+      </div>
+      <input id="nudge-input" type="text" placeholder="" aria-label="Ton pseudo" maxlength="24" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <button id="nudge-confirm" type="button">Choisir mon pseudo</button>
+      <button id="nudge-later" type="button">Plus tard</button>
+      <p class="nudge-error" id="nudge-error" role="alert" hidden></p>
+    </div>
+    <!-- Confirmation post-choix (AC-6) : message neutre, même surface fine. Masqué par défaut. -->
+    <div class="nudge-confirm-msg" id="nudge-confirm-msg" role="status" aria-live="polite" hidden></div>
+
+    <div class="gridhead" id="ingame"></div>
+    <div id="grid"></div>
+    <!-- Mobile uniquement (STORY-006 AC-6) : révèle les boards de slot >= 1 (toggle CSS .is-expanded
+         sur #grid, pas de navigation). Caché sur desktop via .seemore { display:none } + media query. -->
+    <button class="seemore" id="seemore" type="button" aria-expanded="false">Voir les 2 autres parties</button>
+  </section>
+
+  <details class="logbox">
+    <summary>Détails techniques</summary>
+    <div id="log">Prêt à contribuer. Clique « Démarrer » — le calcul tourne en arrière-plan, la page reste réactive.</div>
+  </details>
+
+  <!-- Footer CONTEXTUEL (STORY-011) : #footer-status + #footer-actions pilotés par WorkerState
+       (renderFooter). Les liens permanents restent dans #footer-links (stable). -->
+  <footer>
+    <span id="footer-status" class="foot-status" aria-live="polite"></span>
+    <nav id="footer-actions" class="foot-actions" aria-label="Actions de contribution"></nav>
+    <span id="footer-links">NanoZero — moteur d'échecs open source · contributions <b>anonymes</b> ·
+      <a id="src" href="#" target="_blank" rel="noopener">Code source</a> ·
+      <a href="mailto:contact@nanozero.org">Contact</a> ·
+      icônes <a href="https://lucide.dev" target="_blank" rel="noopener">Lucide</a> (ISC)</span>
+  </footer>
+</main>
+<script type="module" src="app.mjs"></script>
+</body>
+</html>

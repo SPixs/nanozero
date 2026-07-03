@@ -1,0 +1,4 @@
+# ucinewgame no-op (cf. ADR-004), aucune ligne émise.
+> ucinewgame
+> isready
+< readyok

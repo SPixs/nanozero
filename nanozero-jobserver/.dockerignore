@@ -1,0 +1,25 @@
+# Exclut du contexte de build tout ce qui est lourd ou non nécessaire à l'image.
+# CRUCIAL : sans ça, `docker build` enverrait la DB (des Go) et les datasets au démon.
+jobserver.db
+jobserver.db-wal
+jobserver.db-shm
+*.db
+*.db-wal
+*.db-shm
+datasets/
+g031stage/
+v5_delta/
+config.json
+tests/
+tools/
+docs/
+deploy/
+Dockerfile
+.dockerignore
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+poetry.lock

@@ -1,0 +1,59 @@
+max_generations: 5
+run_id: w3090-validation-v1.0.0
+selfplay:
+  mcts_sims: 400
+  temperature: 1.0
+  temperature_switch_ply: 30
+  dirichlet_alpha: 300
+  dirichlet_epsilon: 250
+  go_timeout_seconds: 60.0
+  worker_seed: 42
+  max_game_plies: 400
+  games_per_batch: 250
+  target_games_per_gen: 250
+  worker_restart_every: 1000
+  max_consecutive_crashes: 5
+train:
+  batch_size: 512
+  learning_rate: 0.001
+  total_epochs: 40
+  l2_reg: 5.0e-05
+  lr_min_ratio: 0.05
+  replay_window: 2
+  lazy_dataset: false
+  lazy_buffer_size: 0
+  num_workers: 8
+  shuffle: true
+  pin_memory: true
+  max_grad_norm: 10000.0
+  use_cosine_schedule: true
+  train_seed: 42
+  continued_training: true
+  warmup_epochs: 1
+eval:
+  fastchess_path: fastchess
+  uci_jar: /workspace/nanozero/nanozero/nanozero-uci/target/nanozero-uci-1.2.0.jar
+  elo_low: 0.0
+  elo_high: 5.0
+  alpha: 0.05
+  beta: 0.05
+  max_games: 2000
+  time_control: 10+0.1
+  concurrency: 2
+  poll_interval_seconds: 5.0
+  opening_book_path: /workspace/nanozero/tools/openings/UHO_4060_v2.epd
+  opening_book_plies: 16
+monitor:
+  enabled: true
+  port: 5000
+  host: 0.0.0.0
+  csv_flush_interval_seconds: 60.0
+  sse_poll_interval_seconds: 0.5
+paths:
+  run_root: /workspace/nanozero
+  datasets_dir: datasets
+  models_dir: models
+  monitoring_dir: monitoring
+  versions_yaml: versions.yaml
+  pgn_path: monitoring/sprt.pgn
+  uci_jar: /workspace/nanozero/nanozero/nanozero-uci/target/nanozero-uci-1.2.0.jar

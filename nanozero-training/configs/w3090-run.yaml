@@ -1,0 +1,150 @@
+# Production configuration for W3090 validation run (phase 1.0.0-12).
+# 5 generations end-to-end. Wall-clock estimated 24-48h on W3090 GPU.
+#
+# Usage on W3090:
+#   cd S:\nano2\nanozero-training
+#   poetry run nanozero-training run --config configs/w3090-run.yaml
+#
+# Monitor via Tailscale from DevSrv:
+#   http://w3090:5000/
+
+max_generations: 5
+run_id: "w3090-validation-v1.0.0"
+
+selfplay:
+  # mcts_sims 200 -> 400 (2026-05-18, après gen-7) pour meilleurs labels MCTS :
+  # gen-6, gen-7 ont produit ~+8 Elo chacune (verdict max_games, LLR<2.94). On
+  # double les sims pour augmenter la qualité du signal de policy/value et
+  # espérer franchir le seuil SPRT elo1=5 sur les gens suivantes.
+  # Note : self-play 2x plus lent. Le mode distribué (workers DevSrv/W1080/W3090
+  # via nanozero-jobserver) est utilisé pour les nuits ; cette config
+  # `target_games_per_gen` ne s'applique qu'au mode pipeline interne.
+  mcts_sims: 400
+  temperature: 1.0
+  temperature_switch_ply: 30
+  dirichlet_alpha: 300
+  dirichlet_epsilon: 250
+  go_timeout_seconds: 60.0
+  worker_seed: 42
+  max_game_plies: 400
+  games_per_batch: 250
+  target_games_per_gen: 250
+  worker_restart_every: 1000
+  max_consecutive_crashes: 5
+
+train:
+  batch_size: 256
+  learning_rate: 0.001
+  # total_epochs 10 -> 20 (2026-05-21) : cohérence avec gen-11/12 réellement utilisés.
+  # value_loss converge à ~0.10-0.12 à epoch 20 (vs 0.18-0.20 à epoch 10).
+  total_epochs: 20
+  # (2026-05-21) l2_reg 1e-4 → 5e-5 + switch Adam → AdamW + drop L2-in-loss :
+  # diagnostic gen-13 → 17% poids en denormal à epoch 20. Cause = Adam+L2-in-loss
+  # ("invisible weight blowup" Lc0) + cosine LR → 0 sans contre-force gradient.
+  # AdamW applique weight_decay decoupled (correct mathématiquement) ; 5e-5 plus
+  # aligné KataGo (3e-5) pour cycle court. Cf. mémoire `value-head-improvements`.
+  l2_reg: 0.00005
+  # (2026-05-21) lr_min_ratio 0.05 = eta_min cosine 5e-5 (vs lr 1e-3 init) :
+  # empêche LR → 0 en fin de schedule → élimine cause des denormals.
+  lr_min_ratio: 0.05
+  # (v1.4.0, 2026-05-30) label smoothing cible value : z*(1-eps), cible ±0.95.
+  # Décourage la saturation tanh / sur-confiance du value head (diagnostic gen-24
+  # king-safety : value head aveugle au danger sur son roi ; Lc0 WDL calibration).
+  value_target_smoothing: 0.05
+  # replay_window 10 -> 3 (2026-05-18, après tentative gen-8 OOM W3090) :
+  # avec 8+ shards × ~100k positions, NpzDataset (eager load) consommait > 60 GB
+  # RAM → swap. window=3 limite à gen-{N-2,N-1,N} ≈ 700k positions = 34 GB,
+  # tient en RAM. Aussi plus aligné avec la pratique Lc0 (rolling shuffle buffer
+  # court, privilégie signal frais sur bruit ancien). Lazy/mmap dataset reporté
+  # en v1.1.x (cf. comment dans data/dataset.py).
+  # (2026-05-25) gen-18 : 3 -> 2. Avec gen-17 = 1.35M positions et gen-18 attendu
+  # à 1.5-1.8M (800 sims/move), window=3 = ~5M positions dont 24% de gen-16 (-210
+  # Elo). Hypothèse : window plus pur signal récent → meilleure trajectoire SPRT.
+  # gen-15 (window=3 mais gens 800k) avait fait +140 Elo, gen-16/17 = +71 chacun
+  # malgré plus de data → signal de dilution. Phase A3 (continued training depuis
+  # gen-17-promoted) compense le risque de catastrophic forgetting. À comparer
+  # SPRT gen-18 vs trajectoire historique. Cf. mémoire `replay-window-experiment-gen18`.
+  replay_window: 2
+
+  # (2026-05-21) lazy_dataset=true REQUIS dès qu'on a > 1.5M positions cumulées dans le
+  # replay (replay_window=3 × ~700-1000k positions/gen) sinon python eager loading consomme
+  # > 40 GB RAM sur W3090 (vu gen-13 21h45 - process tué). LazyNpzDataset streame les
+  # shards avec rolling shuffle buffer. Cf. mémoire `training-hyperparams-tuned-2026-05-18`
+  # (lazy validé gen-11 retry +156 Elo) et data/dataset.py.
+  lazy_dataset: true
+
+  # (2026-05-21) lazy_buffer_size 50_000 -> 10_000 + num_workers 4 -> 2 : buffer initial
+  # de 50k samples × 4 workers retenait > 80 GB RAM car torch.from_numpy(planes[i]) partage
+  # le storage du shard 4D entier → tant qu'un sample d'un shard X est en buffer, X entier
+  # (~3.5 GB) reste en RAM. Réduire buffer × workers : 4×2 shards × 3.5 GB = ~28 GB pic.
+  # Tradeoff : shuffle moins global avec 10k buffer mais OK pour notre petit modèle 8×96.
+  lazy_buffer_size: 10000
+  num_workers: 2
+  shuffle: true
+  pin_memory: true              # GPU speedup CUDA
+  max_grad_norm: 10000.0
+  use_cosine_schedule: true
+  train_seed: 42
+
+  # (2026-05-23) Phase A3 — continued training inter-générations.
+  # Avant gen-15 : NanoZeroResNet() était re-instantié from-scratch à chaque gen,
+  # l'argument CLI --base-model gen-N-promoted était logué mais jamais utilisé pour
+  # charger les poids. Diagnostic confirmé par lecture code + recherche multi-agent
+  # Lc0/KataGo/AlphaZero (single network updated continually, pattern dominant
+  # communauté open-source).
+  # Phase A3 corrige : charge train-state-gen-(N-1)-epoch-(total_epochs-1).pt comme
+  # init des poids, reset optimizer AdamW (moments à zéro) + warmup linéaire 1 epoch
+  # (start_factor=0.01 → 1.0) AVANT cosine sur les 19 epochs restantes. Pattern
+  # Gupta 2023 (Continual Pre-Training of LLMs : re-warm reset optimizer + warmup
+  # contre stability gap au démarrage).
+  continued_training: true
+  # (v1.5.0, 2026-06-02) warmup 1 -> 2 epochs pour la 1re gen WDL : le value head
+  # passe scalaire->3 logits W/D/L et est RÉ-INITIALISÉ (random) via le load
+  # tolérant Phase A3, tandis que body+policy sont transférés de gen-025. Un
+  # warmup plus long laisse le head neuf rattraper avant le cosine, évite que de
+  # gros gradients value perturbent le tronc pré-entraîné (cf. ADR-012).
+  warmup_epochs: 2
+
+eval:
+  fastchess_path: "fastchess"
+  # (v1.5.0) SPRT CROSS-JAR pour valider le value head WDL contre le champion
+  # scalaire gen-025 (format réseau cassé : incompatible jar WDL). challenger =
+  # jar WDL 1.5.0, baseline = jar scalaire rebuild depuis tag v1.4.0 (code
+  # engine/uci IDENTIQUE, seul nn diffère -> comparaison équitable, cf. ADR-012).
+  # NB : run_eval_phase OVERRIDE uci_jar par paths.uci_jar ; baseline_uci_jar est
+  # pris depuis cette section eval.
+  uci_jar: "S:/nano2/nanozero/nanozero-uci/target/nanozero-uci-1.5.0.jar"
+  baseline_uci_jar: "S:/nano2/jars/nanozero-uci-1.4.0-scalar.jar"
+  elo_low: 0.0
+  elo_high: 5.0
+  alpha: 0.05
+  beta: 0.05
+  max_games: 2000
+  # TC 3+0.03 -> 10+0.1 (2026-05-18, après gen-7) pour réduire le taux de draws
+  # observé à 94% sur gen-7 vs gen-6. Avec une TC plus longue, les modèles ont
+  # plus de marge pour exploiter les différences subtiles -> signal SPRT plus
+  # net (espéré : 80-85% de draws au lieu de 94%, LLR convergent plus vite).
+  # Coût : SPRT ~3-4× plus long (2-3h au lieu de 30 min).
+  time_control: "10+0.1"        # 10s base + 0.1s/move
+  concurrency: 2                # parallel SPRT games (W3090 GPU permits)
+  poll_interval_seconds: 5.0    # SSE-aligned phase 10
+  opening_book_path: "S:/nano2/tools/openings/UHO_4060_v2.epd"   # 242k positions
+  opening_book_plies: 16        # 8 full moves replayed before SPRT
+
+monitor:
+  enabled: true
+  port: 5000
+  host: "0.0.0.0"               # accept Tailscale connections (vs 127.0.0.1 local-only)
+  csv_flush_interval_seconds: 60.0
+  sse_poll_interval_seconds: 0.5
+
+paths:
+  run_root: "S:/nano2/runs/w3090-v1.0.0"
+  datasets_dir: "datasets"
+  models_dir: "models"
+  monitoring_dir: "monitoring"
+  versions_yaml: "versions.yaml"
+  pgn_path: "monitoring/sprt.pgn"
+  # (v1.5.0) jar WDL = moteur courant (challenger SPRT + self-play). run_eval_phase
+  # propage ce path comme uci_jar du challenger.
+  uci_jar: "S:/nano2/nanozero/nanozero-uci/target/nanozero-uci-1.5.0.jar"

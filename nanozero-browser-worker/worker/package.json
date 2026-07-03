@@ -1,0 +1,15 @@
+{
+  "name": "nanozero-browser-worker",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "description": "Worker self-play NanoZero dans le navigateur (volunteer computing)",
+  "dependencies": {
+    "chess.js": "^1.0.0",
+    "chessops": "^0.15.0",
+    "onnxruntime-node": "^1.26.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.0"
+  }
+}

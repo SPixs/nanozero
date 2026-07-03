@@ -1,0 +1,68 @@
+# Mini configuration for W3090 smoke test + reproducibility validation.
+# 1 mini-generation. Wall-clock estimated 30-60 min on W3090 GPU.
+#
+# Use cases:
+# 1. Smoke test : valider environnement W3090 (JDK 25, fastchess, GPU) avant
+#    le run 5 gens production.
+# 2. Reproducibility test : 2 invocations avec même seed produisent
+#    versions.yaml identiques bit-perfect.
+
+max_generations: 1
+run_id: "w3090-mini-v1.0.0"
+
+selfplay:
+  mcts_sims: 100                  # vs 400 prod
+  temperature: 1.0
+  temperature_switch_ply: 30
+  dirichlet_alpha: 300
+  dirichlet_epsilon: 250
+  go_timeout_seconds: 30.0
+  worker_seed: 42                 # FIXED seed pour reproducibility
+  max_game_plies: 200
+  games_per_batch: 20             # vs 250 prod
+  target_games_per_gen: 20        # mini vs 500 prod
+  worker_restart_every: 1000
+  max_consecutive_crashes: 5
+
+train:
+  batch_size: 64                  # vs 256 prod
+  learning_rate: 0.001
+  total_epochs: 2                 # vs 10 prod
+  l2_reg: 0.0001
+  replay_window: 1
+  num_workers: 2
+  shuffle: true
+  pin_memory: true
+  max_grad_norm: 10000.0
+  use_cosine_schedule: true
+  train_seed: 42                  # FIXED seed pour reproducibility
+
+eval:
+  fastchess_path: "fastchess"
+  uci_jar: "S:/nano2/nanozero/nanozero-uci/target/nanozero-uci-1.2.0.jar"
+  elo_low: 0.0
+  elo_high: 30.0                  # wider bounds for fast convergence on mini
+  alpha: 0.05
+  beta: 0.05
+  max_games: 30                   # vs 2000 prod -- mini SPRT
+  time_control: "2+0.02"          # faster TC for mini
+  concurrency: 2
+  poll_interval_seconds: 5.0
+  opening_book_path: "S:/nano2/tools/openings/UHO_4060_v2.epd"   # 242k positions
+  opening_book_plies: 16          # 8 full moves replayed before SPRT
+
+monitor:
+  enabled: true
+  port: 5001                      # different port to coexist with run prod
+  host: "0.0.0.0"
+  csv_flush_interval_seconds: 30.0
+  sse_poll_interval_seconds: 0.5
+
+paths:
+  run_root: "S:/nano2/runs/w3090-mini-v1.0.0"
+  datasets_dir: "datasets"
+  models_dir: "models"
+  monitoring_dir: "monitoring"
+  versions_yaml: "versions.yaml"
+  pgn_path: "monitoring/sprt.pgn"
+  uci_jar: "S:/nano2/nanozero/nanozero-uci/target/nanozero-uci-1.2.0.jar"

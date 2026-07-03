@@ -1,0 +1,1167 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>NanoZero — moteur d'échecs AlphaZero entraîné par la communauté</title>
+<meta name="description" content="NanoZero : un moteur d'échecs AlphaZero entraîné from scratch en pur self-play. Contribue avec ton GPU depuis le navigateur — zéro installation.">
+<link rel="canonical" href="https://nanozero.org/">
+<meta property="og:type" content="website">
+<meta property="og:url" content="https://nanozero.org/">
+<meta property="og:site_name" content="NanoZero">
+<meta property="og:locale" content="fr_FR">
+<meta property="og:title" content="NanoZero — moteur d'échecs AlphaZero entraîné par la communauté">
+<meta property="og:description" content="Un moteur d'échecs AlphaZero entraîné from scratch en pur self-play. Contribue avec ton GPU/CPU depuis le navigateur — zéro installation, aucun cookie.">
+<meta property="og:image" content="https://nanozero.org/assets/og-card.jpg">
+<meta property="og:image:type" content="image/jpeg">
+<meta property="og:image:width" content="1200">
+<meta property="og:image:height" content="630">
+<meta property="og:image:alt" content="NanoZero — moteur d'échecs AlphaZero entraîné par la communauté">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="NanoZero — moteur d'échecs AlphaZero communautaire">
+<meta name="twitter:description" content="Entraîné from scratch en self-play. Contribue depuis ton navigateur — sans installation, sans cookie.">
+<meta name="twitter:image" content="https://nanozero.org/assets/og-card.jpg">
+<link rel="icon" href="/favicon.ico" sizes="any">
+<link rel="icon" type="image/png" sizes="32x32" href="/assets/logo/favicons/icon-32.png">
+<link rel="icon" type="image/png" sizes="64x64" href="/assets/logo/favicons/icon-64.png">
+<link rel="icon" type="image/png" sizes="128x128" href="/assets/logo/favicons/icon-128.png">
+<link rel="icon" type="image/png" sizes="256x256" href="/assets/logo/favicons/icon-256.png">
+<link rel="icon" type="image/png" sizes="512x512" href="/assets/logo/favicons/icon-512.png">
+<link rel="apple-touch-icon" sizes="256x256" href="/assets/logo/favicons/icon-256.png">
+<link rel="manifest" href="/site.webmanifest">
+<meta name="theme-color" content="#0B0F16">
+<link rel="stylesheet" href="/assets/fonts/fonts.css">
+<style>
+/* =====================================================================
+   DESIGN TOKENS — brand kit V1
+   ===================================================================== */
+:root {
+  --bg:          #0B0F16;  /* Ink 950 */
+  --surface:     #1A1F2B;  /* Ink 900 */
+  --surface-hi:  #242938;  /* Ink 800 */
+  --line:        #31384A;  /* Line 700 */
+  --text:        #F5F7FA;  /* Text 100 */
+  --muted:       #AAB3C7;  /* Text 300 */
+  --gold:        #c9a96e;  /* Accent gold — ambre canonique (aligné échiquier + page training) */
+  --mint:        #7EDC9A;  /* Accent mint */
+  --blue:        #6EA8FF;  /* Accent blue */
+
+  --r-sm:  8px;
+  --r-md:  12px;
+  --r-lg:  16px;
+
+  --shadow:       0 6px 20px rgba(0,0,0,0.24);
+  --shadow-hover: 0 12px 32px rgba(0,0,0,0.42);
+
+  --font-disp: "Space Grotesk", Inter, system-ui, sans-serif;
+  --font-body: Inter, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, monospace;
+}
+
+/* =====================================================================
+   RESET
+   ===================================================================== */
+*, *::before, *::after { box-sizing: border-box; margin: 0; }
+
+/* =====================================================================
+   FOND : couleur + grille de points (allusion réseau-graphe D9)
+   ===================================================================== */
+body {
+  background-color: var(--bg);
+  background-image: radial-gradient(circle at 1px 1px, rgba(49,56,74,0.22) 1px, transparent 0);
+  background-size: 30px 30px;
+  color: var(--text);
+  font-family: var(--font-body);
+  font-size: 16px;
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Gradient directionnel : or en haut-gauche (flotte), bleu en haut-droit (réseau) */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background:
+    radial-gradient(ellipse 70% 55% at 6% -6%,  rgba(212,175,55,0.08) 0%, transparent 55%),
+    radial-gradient(ellipse 55% 65% at 94% 20%, rgba(110,168,255,0.05) 0%, transparent 50%);
+}
+
+/* Canvas réseau-graphe animé — derrière tout le contenu, non interactif */
+#netbg {
+  position: fixed;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: -1;
+  pointer-events: none;
+  display: block;
+}
+
+/* =====================================================================
+   MISE EN PAGE
+   ===================================================================== */
+.page { flex: 1; display: flex; flex-direction: column; }
+
+.wrap {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 24px;
+  width: 100%;
+}
+
+/* =====================================================================
+   HERO
+   ===================================================================== */
+.hero {
+  position: relative;
+  overflow: hidden;
+  padding: 7vh 0 5vh;
+}
+
+/* Renfort du gradient or dans la zone titre */
+.hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 0;
+  background: radial-gradient(ellipse 80% 60% at 15% 20%, rgba(201,169,110,0.06) 0%, transparent 60%);
+}
+
+/* D9 hook — fond réseau-graphe animé (inactif en MVP) */
+.d9-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.8s ease;
+}
+.d9-bg.is-active { opacity: 1; }
+
+.hero-inner {
+  position: relative;
+  z-index: 1;
+}
+
+/* =====================================================================
+   IDENTITÉ / WORDMARK
+   ===================================================================== */
+.identity {
+  margin-bottom: 2.4rem;
+}
+
+/* Logo brand kit (PNG 3:1) — ACTIF. Wordmark CSS conservé en fallback ci-dessous. */
+.brand-logo { display: block; width: 400px; max-width: 88vw; height: auto; }
+
+/* Wordmark CSS — fallback principal tant que l'image n'est pas déployée */
+.wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  text-decoration: none;
+  user-select: none;
+}
+
+/* D9 hook — cavalier 3D dans le "0" (inactif en MVP) */
+.d9-knight {
+  display: none; /* activé par le script D9 qui injecte son canvas */
+  pointer-events: none;
+}
+
+.wm-text {
+  font-family: var(--font-disp);
+  font-size: 2.1rem;
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  line-height: 1;
+}
+
+.wm-nano { color: var(--text); }
+
+.wm-zero {
+  color: var(--gold);
+  position: relative;
+}
+
+/* Point orbital animé sur le "0" — allusion à l'emblème brand kit (orbite + cavalier)
+   Remplacé par le canvas three.js en D9 (classe .d9-knight.is-active) */
+.wm-orbit {
+  position: relative;
+  display: inline-block;
+}
+.wm-orbit::after {
+  content: '';
+  position: absolute;
+  top: -3px;
+  right: -9px;
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  background: var(--gold);
+  box-shadow: 0 0 6px rgba(212,175,55,0.7);
+  animation: spark-orbit 2.4s ease-in-out infinite;
+}
+
+@keyframes spark-orbit {
+  0%,100% { opacity: 0.25; transform: translateY(0) scale(0.75); }
+  50%      { opacity: 1;    transform: translateY(-5px) scale(1); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .wm-orbit::after { animation: none; opacity: 0.6; }
+}
+
+/* Tagline marque — très discrète, en dessous du wordmark */
+.brand-tag {
+  display: block;
+  margin-top: 6px;
+  margin-left: 2px;
+  font-family: var(--font-disp);
+  font-size: 0.65rem;
+  font-weight: 500;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--muted);
+  opacity: 0.75;
+}
+
+/* =====================================================================
+   PITCH
+   ===================================================================== */
+.pitch {
+  max-width: 680px;
+  position: relative;
+}
+/* Panneau frosté derrière le titre+lead (même effet que la carte Contribuer) */
+.pitch::before {
+  content: '';
+  position: absolute;
+  inset: -1.4rem -1.7rem;
+  z-index: -1;
+  background: linear-gradient(180deg, rgba(201,169,110,0.05), rgba(22,27,38,0.5));
+  -webkit-backdrop-filter: blur(6px);
+  backdrop-filter: blur(6px);
+  border-radius: var(--r-lg);
+  pointer-events: none;
+}
+
+.pitch-title {
+  font-family: var(--font-disp);
+  font-size: 2.15rem;
+  font-weight: 700;
+  line-height: 1.18;
+  letter-spacing: -0.025em;
+  color: var(--text);
+  margin-bottom: 0.9rem;
+  text-shadow: 0 1px 16px rgba(11,15,22,0.92), 0 0 5px rgba(11,15,22,0.7);
+}
+
+.pitch-lead {
+  font-size: 1.05rem;
+  line-height: 1.68;
+  color: var(--muted);
+  max-width: 620px;
+  text-shadow: 0 1px 12px rgba(11,15,22,0.85);
+}
+
+.pitch-lead strong {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* =====================================================================
+   COMPTEUR LIVE
+   ===================================================================== */
+.counter-wrap {
+  margin-top: 2rem;
+  min-height: 3.5rem; /* évite le saut de layout à l'apparition */
+}
+
+.counter[hidden] { display: none; }
+
+.counter {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+
+.counter-num {
+  font-family: var(--font-mono);
+  font-size: 2.4rem;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--gold);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.counter-label {
+  font-size: 0.88rem;
+  color: var(--muted);
+  white-space: normal; /* mobile : le libellé peut passer à la ligne plutôt qu'être tronqué */
+}
+
+.counter-gen {
+  color: var(--text);
+  font-weight: 600;
+}
+
+/* =====================================================================
+   SECTION CTA
+   ===================================================================== */
+.ctas-section {
+  padding: 4vh 0 8vh;
+}
+
+/* Hiérarchie = mission : Contribuer pleine largeur (la raison d'être du site),
+   Analyser + Jouer côte à côte dès 720px. Mobile : tout empilé. */
+.ctas {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+}
+@media (min-width: 720px) {
+  .ctas { grid-template-columns: 1fr 1fr; }
+  .card--primary { grid-column: 1 / -1; }
+}
+
+/* =====================================================================
+   CARDS — liseré d'accent plein à gauche, couleur du parcours
+   (or = contribuer, bleu = analyser, menthe = jouer), qui s'allume au
+   survol. Même langage que les chips des mentions légales.
+   ===================================================================== */
+.card {
+  --rail: var(--gold);
+  --rail-dim: rgba(201,169,110,0.14);
+  position: relative;
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  padding: 1.5rem 1.6rem 1.5rem 2.05rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.65rem;
+  transition: border-color 0.18s, box-shadow 0.18s, transform 0.18s, opacity 0.18s;
+}
+.card::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--rail);
+  opacity: 0.55;
+  transition: opacity 0.25s;
+}
+.card:hover::before,
+.card:focus-within::before { opacity: 1; }
+
+/* Eyebrow : ce que TU apportes au parcours (info, pas déco) */
+.card-eyebrow {
+  font-family: var(--font-disp);
+  font-size: 0.66rem;
+  font-weight: 600;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: var(--rail);
+  opacity: 0.9;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .card, .card::before { transition: none; }
+}
+
+/* --- Card primaire : Contribuer --- */
+.card--primary {
+  background: linear-gradient(180deg, rgba(201,169,110,0.06), rgba(22,27,38,0.55));
+  border: none;
+  box-shadow: var(--shadow);
+  -webkit-backdrop-filter: blur(3px);
+  backdrop-filter: blur(3px);
+}
+
+.card--primary:hover,
+.card--primary:focus-within {
+  box-shadow: 0 0 24px rgba(201,169,110,0.12), var(--shadow-hover);
+  transform: translateY(-2px);
+}
+
+/* En-tête de carte : icône dans une « case » teintée (allusion case d'échiquier) + titre */
+.card-head { display: flex; align-items: center; gap: 0.7rem; }
+.card-icon {
+  display: inline-flex;
+  padding: 0.5rem;
+  border-radius: 10px;
+  background: var(--rail-dim);
+  border: 1px solid color-mix(in srgb, var(--rail) 28%, transparent);
+}
+.card-icon svg { display: block; }
+.card--primary .card-icon { color: var(--gold); }
+.card--analyse .card-icon { color: var(--blue); }
+.card--jouer   .card-icon { color: var(--mint); }
+
+/* Carte Analyser (nouveauté) : rail + accents bleus */
+.card--analyse {
+  --rail: var(--blue);
+  --rail-dim: rgba(110,168,255,0.13);
+  background: linear-gradient(180deg, rgba(110,168,255,0.05), rgba(22,27,38,0.55));
+  border-color: rgba(110,168,255,0.18);
+}
+.card--jouer {
+  --rail: var(--mint);
+  --rail-dim: rgba(126,220,154,0.12);
+}
+.card--analyse:hover,
+.card--analyse:focus-within {
+  box-shadow: 0 0 24px rgba(110,168,255,0.10), var(--shadow-hover);
+  border-color: rgba(110,168,255,0.30);
+  transform: translateY(-2px);
+}
+
+/* Carte secondaire standard (Jouer) : survol discret */
+.card--jouer:hover,
+.card--jouer:focus-within {
+  box-shadow: var(--shadow-hover);
+  border-color: rgba(126,220,154,0.30);
+  transform: translateY(-2px);
+}
+
+/* Label « Nouveau » discret (réservé à UNE carte — cf. recherche UX : pas de badge uniforme) */
+.card-new {
+  font-family: var(--font-disp);
+  font-size: 0.62rem; font-weight: 600; letter-spacing: 0.1em; text-transform: uppercase;
+  color: var(--blue);
+  background: rgba(110,168,255,0.12);
+  border: 1px solid rgba(110,168,255,0.22);
+  padding: 2px 8px; border-radius: 999px;
+  margin-left: auto; /* poussé à droite de la ligne icône+titre */
+}
+
+/* --- Cards secondaires : Analyser, Jouer --- */
+/* Roadmap discrète — remplace les 2 cartes « Bientôt » grisées (poids mort).
+   Pastille à gauche + liste alignée (pas de stagger). */
+.roadmap {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 0.7rem 1rem;
+  margin-top: 1.2rem;
+}
+.roadmap-label {
+  font-family: var(--font-disp);
+  font-size: 0.64rem;
+  font-weight: 600;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--blue);
+  background: rgba(110,168,255,0.1);
+  border: 1px solid rgba(110,168,255,0.2);
+  padding: 4px 9px;
+  border-radius: 999px;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.roadmap-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 0.4rem;
+  font-size: 0.88rem;
+  line-height: 1.5;
+  color: var(--muted);
+}
+.roadmap-list b { color: var(--text); font-weight: 600; }
+
+/* =====================================================================
+   BADGES
+   ===================================================================== */
+.badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  font-family: var(--font-disp);
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  padding: 3px 10px;
+  border-radius: 999px;
+  align-self: flex-start;
+}
+
+.badge--live {
+  background: rgba(126,220,154,0.14);
+  color: var(--mint);
+  border: 1px solid rgba(126,220,154,0.25);
+}
+
+.badge--soon {
+  background: rgba(110,168,255,0.1);
+  color: var(--blue);
+  border: 1px solid rgba(110,168,255,0.2);
+}
+
+/* Indicateurs de statut dans le badge */
+.badge-dot {
+  width: 5px;
+  height: 5px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.badge--live  .badge-dot { background: var(--mint); }
+.badge--soon  .badge-dot { background: var(--blue); opacity: 0.6; }
+
+/* =====================================================================
+   TITRES ET CORPS DES CARDS
+   ===================================================================== */
+.card-title {
+  font-family: var(--font-disp);
+  font-size: 1.35rem;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  line-height: 1.2;
+}
+
+.card--soon .card-title {
+  font-size: 1.15rem;
+}
+
+.card-body {
+  font-size: 0.92rem;
+  color: var(--muted);
+  line-height: 1.6;
+  flex: 1;
+}
+
+/* =====================================================================
+   CTA BUTTON (dans la card primaire)
+   ===================================================================== */
+.cta-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.3rem;
+  align-self: flex-start;
+  padding: 0.62rem 1.4rem;
+  background: var(--mint);
+  color: #0B0F16;
+  font-family: var(--font-disp);
+  font-size: 0.95rem;
+  font-weight: 700;
+  letter-spacing: 0.01em;
+  text-decoration: none;
+  border-radius: var(--r-md);
+  border: none;
+  cursor: pointer;
+  box-shadow: 0 2px 12px rgba(126,220,154,0.28), 0 1px 3px rgba(0,0,0,0.28);
+  transition: transform 0.15s, box-shadow 0.15s, filter 0.15s;
+}
+
+.cta-btn::after {
+  content: '→';
+  font-weight: 400;
+}
+
+.cta-btn:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 20px rgba(126,220,154,0.38), 0 2px 6px rgba(0,0,0,0.35);
+  filter: brightness(1.08);
+}
+
+.cta-btn:active {
+  transform: none;
+}
+
+/* Bouton de chaque carte = couleur de son icône d'accent (texte sombre conservé) */
+.card--primary .cta-btn {
+  background: var(--gold);
+  box-shadow: 0 2px 12px rgba(201,169,110,0.30), 0 1px 3px rgba(0,0,0,0.28);
+}
+.card--primary .cta-btn:hover {
+  box-shadow: 0 6px 20px rgba(201,169,110,0.42), 0 2px 6px rgba(0,0,0,0.35);
+}
+.card--analyse .cta-btn {
+  background: var(--blue);
+  box-shadow: 0 2px 12px rgba(110,168,255,0.30), 0 1px 3px rgba(0,0,0,0.28);
+}
+.card--analyse .cta-btn:hover {
+  box-shadow: 0 6px 20px rgba(110,168,255,0.42), 0 2px 6px rgba(0,0,0,0.35);
+}
+/* Jouer conserve le bouton menthe (défaut .cta-btn) */
+
+@media (prefers-reduced-motion: reduce) {
+  .cta-btn { transition: none; }
+}
+
+/* =====================================================================
+   FOCUS VISIBLE (accessibilité clavier)
+   ===================================================================== */
+:focus-visible {
+  outline: 2px solid var(--gold);
+  outline-offset: 3px;
+  border-radius: 4px;
+}
+
+.cta-btn:focus-visible {
+  outline-offset: 4px;
+}
+
+/* =====================================================================
+   FOOTER
+   ===================================================================== */
+.site-footer {
+  border-top: 1px solid var(--line);
+  padding: 1.4rem 0 2rem;
+  color: var(--muted);
+  font-size: 0.82rem;
+}
+
+/* Badges de confiance FACTUELS (pas de faux sceaux de certification : ni la CNIL ni l'AI Act
+   ne délivrent de logo de conformité — on énonce des faits vérifiables, liés aux mentions). */
+.trust-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  margin-bottom: 1rem;
+}
+.trust {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 0.34rem 0.8rem;
+  font-size: 0.74rem;
+  color: var(--muted);
+  text-decoration: none;
+  transition: border-color 0.15s, color 0.15s;
+}
+.trust:hover { border-color: var(--gold); color: var(--text); }
+.trust svg { width: 14px; height: 14px; flex: none; color: var(--gold); }
+
+.footer-inner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.35rem 1rem;
+}
+
+.footer-sep {
+  opacity: 0.4;
+}
+
+.footer-gen {
+  color: var(--muted);
+}
+
+.footer-gen span {
+  color: var(--text);
+  font-weight: 600;
+}
+
+.footer-link {
+  color: var(--muted);
+  text-decoration: none;
+  transition: color 0.15s;
+}
+
+.footer-link:hover {
+  color: var(--blue);
+}
+
+/* =====================================================================
+   RESPONSIVE
+   ===================================================================== */
+
+/* Tablette (600–899 px) : pas de changement majeur */
+@media (max-width: 899px) {
+  .pitch-title { font-size: 1.85rem; }
+}
+
+/* Mobile (< 640 px) */
+@media (max-width: 639px) {
+  .hero { padding: 5vh 0 3vh; }
+
+  .wm-text    { font-size: 1.7rem; }
+  .pitch-title { font-size: 1.55rem; }
+  .counter-num { font-size: 1.75rem; }
+
+  .ctas-secondary {
+    grid-template-columns: 1fr;
+  }
+
+  .card { padding: 1.15rem 1.2rem; }
+
+  .cta-btn {
+    width: 100%;
+    justify-content: center;
+  }
+
+  .footer-inner { gap: 0.4rem 0.75rem; }
+}
+
+/* Très petit (< 380 px) */
+@media (max-width: 379px) {
+  .pitch-title { font-size: 1.35rem; }
+  .counter-num { font-size: 1.5rem; }
+}
+
+/* =====================================================================
+   UTILITAIRES
+   ===================================================================== */
+.visually-hidden {
+  position: absolute;
+  width: 1px; height: 1px;
+  padding: 0; margin: -1px;
+  overflow: hidden;
+  clip: rect(0,0,0,0);
+  white-space: nowrap;
+  border: 0;
+}
+</style>
+</head>
+
+<body>
+<!-- Fond animé : arbre de recherche MCTS (canvas vanilla léger). Cf. script en bas de page. -->
+<canvas id="netbg" aria-hidden="true"></canvas>
+<div class="page">
+
+  <!-- ================================================================
+       HERO
+       ================================================================ -->
+  <section class="hero" aria-label="Présentation de NanoZero">
+
+    <!-- D9 hook : fond réseau-graphe animé (three.js / particles — inactif en MVP) -->
+    <div id="d9-bg" class="d9-bg" aria-hidden="true"></div>
+
+    <div class="wrap hero-inner">
+
+      <!-- Identité -->
+      <div class="identity">
+        <!-- Logo brand kit (PNG). Contient déjà la tagline « OPEN SOURCE CHESS ENGINE ». -->
+        <a href="/" class="wordmark" aria-label="NanoZero — accueil">
+          <img class="brand-logo" src="/assets/logo/logo-primary-dark-800.webp"
+               alt="NanoZero — moteur d'échecs open source"
+               width="400" height="98" />
+          <!-- D9 hook : cavalier 3D animé dans le "0" (inactif en MVP) -->
+          <span id="d9-knight" class="d9-knight" aria-hidden="true"></span>
+        </a>
+      </div>
+
+      <!-- Pitch -->
+      <div class="pitch">
+        <h1 class="pitch-title">Un moteur d'échecs AlphaZero, entraîné depuis zéro — par la communauté.</h1>
+        <p class="pitch-lead">Pas de connaissance humaine, pas de livre d'ouverture. NanoZero apprend en jouant contre lui-même, génération après génération. <strong>Ton GPU fait avancer la prochaine.</strong></p>
+      </div>
+
+      <!-- Compteur live — caché jusqu'à la réponse JS, aucun espace réservé visible -->
+      <div class="counter-wrap" aria-live="polite" aria-atomic="true">
+        <div class="counter" id="counter" hidden>
+          <span class="counter-num" id="counter-num">—</span>
+          <span class="counter-label">positions collectées · <span class="counter-gen" id="counter-gen">gen-031 en production</span></span>
+        </div>
+      </div>
+
+    </div>
+  </section>
+
+  <!-- ================================================================
+       SECTION CTA
+       ================================================================ -->
+  <section class="ctas-section" aria-label="Surfaces du projet">
+    <div class="wrap">
+      <div class="ctas">
+
+        <!-- === Card primaire : Contribuer (icône puce CPU, or) === -->
+        <article class="card card--primary">
+          <span class="card-eyebrow">Ton GPU · le temps d'un onglet</span>
+          <div class="card-head">
+            <span class="card-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="7" y="7" width="10" height="10" rx="2"/>
+                <line x1="7" y1="10" x2="4" y2="10"/><line x1="7" y1="14" x2="4" y2="14"/>
+                <line x1="17" y1="10" x2="20" y2="10"/><line x1="17" y1="14" x2="20" y2="14"/>
+                <line x1="10" y1="7" x2="10" y2="4"/><line x1="14" y1="7" x2="14" y2="4"/>
+                <line x1="10" y1="17" x2="10" y2="20"/><line x1="14" y1="17" x2="14" y2="20"/>
+                <rect x="10" y="10" width="4" height="4" rx="1"/>
+              </svg>
+            </span>
+            <h2 class="card-title">Contribuer à l'IA</h2>
+          </div>
+          <p class="card-body">
+            Prête ton GPU ou CPU le temps d'un onglet : le navigateur joue des parties d'entraînement et les envoie. Zéro installation.
+          </p>
+          <a class="cta-btn" href="/worker/">Démarrer ma contribution</a>
+        </article>
+
+        <!-- === Card : Analyser une partie (nouveauté — icône courbe + jauge W/D/L, bleu) === -->
+        <article class="card card--analyse">
+          <span class="card-eyebrow">Ta partie, coup par coup</span>
+          <div class="card-head">
+            <span class="card-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                <polyline points="2,17 6,11 10,14 15,6 20,10"/>
+                <rect x="2" y="19.5" width="20" height="2.5" rx="1.25"/>
+                <line x1="9" y1="19.5" x2="9" y2="22"/><line x1="16" y1="19.5" x2="16" y2="22"/>
+              </svg>
+            </span>
+            <h2 class="card-title">Analyser une partie</h2>
+            <span class="card-new" aria-label="Nouvelle surface">Nouveau</span>
+          </div>
+          <p class="card-body">
+            Colle un PGN ou une FEN : Nano trace le graphe W/D/L de ta partie et te propose les 3 meilleures variantes avec flèches.
+          </p>
+          <a class="cta-btn" href="/analyse/">Analyser ma partie</a>
+        </article>
+
+        <!-- === Card : Jouer contre Nano (icône pion, menthe) === -->
+        <article class="card card--jouer">
+          <span class="card-eyebrow">Toi contre le moteur</span>
+          <div class="card-head">
+            <span class="card-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" width="26" height="26" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="7" r="2.5"/>
+                <path d="M9.5 9.5 Q8.5 13 8 17 h8 Q15.5 13 14.5 9.5 Z"/>
+                <rect x="6.5" y="17" width="11" height="2" rx="1"/>
+              </svg>
+            </span>
+            <h2 class="card-title">Jouer contre Nano</h2>
+          </div>
+          <p class="card-body">
+            Du mode tranquille à la pleine force — affronte le moteur directement dans ton navigateur, sans rien installer.
+          </p>
+          <a class="cta-btn" href="/play/">Jouer maintenant</a>
+        </article>
+
+      </div>
+      <!-- /ctas -->
+    </div>
+  </section>
+
+  <!-- ================================================================
+       FOOTER
+       ================================================================ -->
+  <footer class="site-footer">
+    <div class="wrap trust-row" aria-label="Engagements de confiance">
+      <a class="trust" href="/mentions-legales/" title="Serveurs OVHcloud à Roubaix, France — données dans l'Union européenne">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" aria-hidden="true">
+          <circle cx="12" cy="12" r="9"/>
+          <circle cx="12" cy="6.4" r="0.9" fill="currentColor" stroke="none"/><circle cx="17.6" cy="12" r="0.9" fill="currentColor" stroke="none"/>
+          <circle cx="12" cy="17.6" r="0.9" fill="currentColor" stroke="none"/><circle cx="6.4" cy="12" r="0.9" fill="currentColor" stroke="none"/>
+          <circle cx="16" cy="8" r="0.9" fill="currentColor" stroke="none"/><circle cx="16" cy="16" r="0.9" fill="currentColor" stroke="none"/>
+          <circle cx="8" cy="16" r="0.9" fill="currentColor" stroke="none"/><circle cx="8" cy="8" r="0.9" fill="currentColor" stroke="none"/>
+        </svg>
+        Hébergé en UE — OVH, France
+      </a>
+      <a class="trust" href="/mentions-legales/" title="Aucun cookie, aucun traceur, aucune donnée personnelle collectée — détail dans les mentions légales">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <path d="M12 3l7 3v5c0 4.5-3 8.2-7 10-4-1.8-7-5.5-7-10V6z"/>
+          <polyline points="9,12 11.2,14.2 15.4,9.8"/>
+        </svg>
+        RGPD — aucun cookie, aucune donnée personnelle
+      </a>
+      <a class="trust" href="/mentions-legales/" title="Moteur d'échecs : IA à risque minimal au sens du règlement européen sur l'IA — code et entraînement ouverts">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+          <line x1="12" y1="4" x2="12" y2="20"/><line x1="8" y1="20" x2="16" y2="20"/>
+          <line x1="4" y1="7" x2="20" y2="7"/>
+          <path d="M6.5 7l-2.8 5.5a3 3 0 0 0 5.6 0z"/><path d="M17.5 7l-2.8 5.5a3 3 0 0 0 5.6 0z"/>
+        </svg>
+        AI Act — IA à risque minimal, open source
+      </a>
+    </div>
+    <div class="wrap footer-inner">
+      <span class="footer-brand">NanoZero — moteur d'échecs open source</span>
+      <span class="footer-sep" aria-hidden="true">·</span>
+      <span class="footer-gen">Champion actuel : <span id="footer-gen">gen-031</span></span>
+      <span class="footer-sep" aria-hidden="true">·</span>
+      <a href="/mentions-legales/" class="footer-link">Mentions légales</a>
+      <span class="footer-sep" aria-hidden="true">·</span>
+      <a href="mailto:contact@nanozero.org" class="footer-link">Contact</a>
+      <!-- URLs à brancher quand disponibles -->
+      <!-- <span class="footer-sep" aria-hidden="true">·</span>
+      <a href="https://github.com/SPixs/nanozero" class="footer-link" target="_blank" rel="noopener">Code source</a>
+      <span class="footer-sep" aria-hidden="true">·</span>
+      <a href="#" class="footer-link" target="_blank" rel="noopener">Discord</a> -->
+    </div>
+  </footer>
+
+</div>
+<!-- /page -->
+
+<script>
+/**
+ * Compteur live — best-effort.
+ * Champs réels de /api/v1/stats/selfplay : positions_total · positions_durable · positions_browser
+ * Dégrade silencieusement si l'API est indisponible ou si le format diffère.
+ */
+(async () => {
+  try {
+    const r = await fetch('/api/v1/stats/selfplay', { cache: 'no-store' });
+    if (!r.ok) return;
+    const d = await r.json();
+
+    // Choisit le champ le plus significatif disponible
+    const n = d.positions_total ?? d.positions_durable ?? d.total_positions;
+    if (typeof n !== 'number' || n <= 0) return;
+
+    document.getElementById('counter-num').textContent = n.toLocaleString('fr-FR');
+
+    // Révèle l'élément (aria-live annoncera le contenu aux AT)
+    document.getElementById('counter').hidden = false;
+
+  } catch (_) {
+    // Silencieux — l'absence du compteur ne casse pas la page
+  }
+
+  // Génération DYNAMIQUE (le texte statique gen-031 deviendrait faux à la prochaine promo).
+  try {
+    const r = await fetch('/api/v1/models/current', { cache: 'no-store' });
+    if (!r.ok) return;
+    const m = await r.json();
+    if (typeof m.version !== 'number') return;
+    const gen = 'gen-' + String(m.version).padStart(3, '0');
+    const cg = document.getElementById('counter-gen');
+    const fg = document.getElementById('footer-gen');
+    if (cg) cg.textContent = gen + ' en production';
+    if (fg) fg.textContent = gen;
+  } catch (_) { /* silencieux */ }
+})();
+</script>
+
+<script>
+/* =====================================================================
+   FOND ANIMÉ — ARBRE DE RECHERCHE MCTS
+   Lecture voulue : un arbre qui CROÎT depuis une racine (≠ maillage).
+   - chaque "simulation" descend par les visites (exploitation) + bruit
+     (exploration), atteint une feuille, l'étend, et rétro-propage les
+     visites le long du chemin ;
+   - l'épaisseur/clarté d'une arête ∝ visites (l'info EST la structure) ;
+   - le chemin principal (PV = enfants les plus visités) est en OR discret ;
+   - "coup joué" → fondu → nouvelle recherche, en boucle lente.
+   Garde-fous : pause hors-onglet, frame statique si prefers-reduced-motion,
+   budget réduit sur mobile.
+   ===================================================================== */
+(() => {
+  const canvas = document.getElementById('netbg');
+  if (!canvas) return;
+  const ctx = canvas.getContext('2d');
+  if (!ctx) return;
+  const reduce = matchMedia && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  let w=0, h=0, dpr=1, raf=0, simTimer=0;
+  let nodes=[], root=null, pv=[], phase='grow', phaseT=0, treeAlpha=1, pulseT=0;
+  let CAP=140, STEP=70, MAXDEPTH=13;
+
+  const C = {
+    edge:   '110,168,255',  // bleu (arête froide, peu visitée)
+    node:   '170,179,199',  // gris (nœud neutre)
+    gold:   '201,169,110',  // ambre (visites élevées + PV) — or canonique
+    goldB:  '230,200,137',  // ambre clair (particule)
+    mint:   '126,220,154',  // menthe (feuille fraîchement étendue)
+  };
+
+  function resize(){
+    dpr = Math.min(devicePixelRatio||1, 2);
+    w = innerWidth; h = innerHeight;
+    canvas.width = Math.floor(w*dpr); canvas.height = Math.floor(h*dpr);
+    canvas.style.width = w+'px'; canvas.style.height = h+'px';
+    ctx.setTransform(dpr,0,0,dpr,0,0);
+    // Budget adapté à la largeur (mobile = arbre plus petit)
+    const small = w < 680;
+    CAP      = small ? 95 : 230;
+    STEP     = Math.max(38, Math.min(66, w/17));
+    MAXDEPTH = small ? 11 : 16;
+    seed();
+  }
+
+  function mkNode(x,y,depth,dir,parent){
+    const n = {x,y,depth,dir,parent,children:[],visits:1,fresh:1};
+    nodes.push(n);
+    if (parent) parent.children.push(n);
+    return n;
+  }
+
+  function seed(){
+    nodes=[]; pv=[]; phase='grow'; phaseT=0; treeAlpha=1; pulseT=0;
+    // ORIGINE VARIABLE : position racine (x/y) ET cap de départ changent à chaque recherche.
+    const rx = 0.05 + Math.random()*0.16;                  // 5–21 % largeur
+    const ry = 0.22 + Math.random()*0.58;                  // 22–80 % hauteur
+    const baseDir = (Math.random()-0.5)*1.0;               // penche le départ haut/bas/droit
+    root = mkNode(w*rx, h*ry, 0, baseDir, null);
+    root.fresh = 0;
+    for (let i=0;i<3;i++) expand(root);   // amorce
+  }
+
+  // Étend une feuille : 2–3 enfants, direction héritée + écart angulaire,
+  // biaisée pour rester dans la bande verticale et progresser vers la droite.
+  function expand(leaf){
+    if (nodes.length >= CAP || leaf.depth >= MAXDEPTH) return false;
+    const k = 2 + (Math.random()<0.45 ? 1 : 0);          // 2–3 enfants → arbre plus touffu
+    let added=false;
+    for (let i=0;i<k;i++){
+      if (nodes.length >= CAP) break;
+      let spread = (Math.random()-0.5) * 1.15;            // ±~33° → ramifications plus larges
+      let dir = leaf.dir + spread;
+      dir = Math.max(-0.9, Math.min(0.9, dir));            // garde un cap ~vers la droite
+      const len = STEP * (0.82 + Math.random()*0.36);
+      let nx = leaf.x + Math.cos(dir)*len;
+      let ny = leaf.y + Math.sin(dir)*len;
+      // Rebond doux sur les bords haut/bas
+      if (ny < h*0.08){ ny = h*0.08; dir = Math.abs(dir)*0.5; }
+      if (ny > h*0.92){ ny = h*0.92; dir = -Math.abs(dir)*0.5; }
+      if (nx > w*0.97) continue;                           // atteint le bord droit → terminal
+      mkNode(nx, ny, leaf.depth+1, dir, leaf);
+      added=true;
+    }
+    return added;
+  }
+
+  // Une simulation MCTS : sélection (par visites + bruit) → expansion → backprop.
+  function simulate(){
+    if (phase !== 'grow') return;
+    let node = root, guard=0;
+    while (node.children.length && guard++ < 40){
+      // PUCT simplifié : exploitation (visites) + exploration (bruit)
+      let best=null, bestScore=-1;
+      for (const c of node.children){
+        const score = c.visits*0.5 + Math.random()*6;     // + d'exploration → expansion répartie (touffu)
+        if (score > bestScore){ bestScore=score; best=c; }
+      }
+      node = best;
+    }
+    // node = feuille : on l'étend
+    const grew = expand(node);
+    // backprop : +1 visite de la feuille jusqu'à la racine
+    let p = node;
+    while (p){ p.visits++; p = p.parent; }
+    computePV();
+    // Fin de "recherche" : plus de place / racine bien visitée → on joue le coup
+    if (!grew && (nodes.length >= CAP || root.visits > 90)) {
+      phase = 'commit'; phaseT = 0;
+    }
+  }
+
+  function computePV(){
+    pv=[]; let n=root;
+    while (n){ pv.push(n); if(!n.children.length) break;
+      let best=n.children[0];
+      for (const c of n.children) if (c.visits>best.visits) best=c;
+      n=best;
+    }
+  }
+
+  // ---- rendu ----
+  function maxVisits(){ let m=1; for(const n of nodes) if(n.visits>m) m=n.visits; return m; }
+
+  function draw(){
+    ctx.clearRect(0,0,w,h);
+    const mv = maxVisits();
+    const inPV = new Set(pv);
+
+    // Arêtes froides : BIEN visibles (alpha haut), sans glow (perf)
+    ctx.lineCap='round';
+    for (const n of nodes){
+      if (!n.parent || (inPV.has(n)&&inPV.has(n.parent))) continue;
+      const t = Math.min(1, n.visits/(mv*0.6));
+      ctx.strokeStyle = `rgba(${C.edge},${(0.42 + t*0.50)*treeAlpha})`;
+      ctx.lineWidth = 1.1 + t*1.8;
+      ctx.beginPath(); ctx.moveTo(n.parent.x,n.parent.y); ctx.lineTo(n.x,n.y); ctx.stroke();
+    }
+
+    // Chemin principal (PV) : ambre ÉPAIS + glow → l'axe saute aux yeux
+    ctx.shadowColor = `rgba(${C.gold},${0.7*treeAlpha})`; ctx.shadowBlur = 12;
+    for (const n of nodes){
+      if (!n.parent || !(inPV.has(n)&&inPV.has(n.parent))) continue;
+      const t = Math.min(1, n.visits/(mv*0.6));
+      ctx.strokeStyle = `rgba(${C.gold},${(0.78 + t*0.22)*treeAlpha})`;
+      ctx.lineWidth = 2.4 + t*2.6;
+      ctx.beginPath(); ctx.moveTo(n.parent.x,n.parent.y); ctx.lineTo(n.x,n.y); ctx.stroke();
+    }
+    ctx.shadowBlur = 0;
+
+    // Nœuds — plus gros + lumineux
+    for (const n of nodes){
+      const t = Math.min(1, n.visits/(mv*0.6));
+      const hot = inPV.has(n);
+      let col, r;
+      if (n.fresh > 0.02){ col = C.mint; r = 3.4; n.fresh *= 0.9; }      // feuille fraîche → menthe
+      else if (hot){ col = C.gold; r = 2.6 + t*1.7; }
+      else { col = t>0.6 ? C.gold : C.node; r = 1.9 + t*1.9; }
+      const a = (hot ? 0.92 : 0.55 + t*0.40) * treeAlpha;
+      ctx.beginPath(); ctx.arc(n.x,n.y,r,0,Math.PI*2);
+      ctx.fillStyle = `rgba(${col},${a})`; ctx.fill();
+    }
+
+    // Particule : point ambre vif + halo qui descend le PV (sélection/rollout)
+    if (!reduce && phase!=='fade' && pv.length>1){
+      const seg = pv.length-1;
+      const f = pulseT % 1;
+      const fi = f*seg; const i = Math.min(seg-1, Math.floor(fi)); const k = fi-i;
+      const a = pv[i], b = pv[i+1];
+      const px = a.x+(b.x-a.x)*k, py = a.y+(b.y-a.y)*k;
+      ctx.shadowColor = `rgba(${C.goldB},${0.9*treeAlpha})`; ctx.shadowBlur = 16;
+      ctx.beginPath(); ctx.arc(px,py,4.4,0,Math.PI*2);
+      ctx.fillStyle = `rgba(${C.goldB},${treeAlpha})`; ctx.fill();
+      ctx.shadowBlur = 0;
+      ctx.beginPath(); ctx.arc(px,py,11,0,Math.PI*2);
+      ctx.fillStyle = `rgba(${C.gold},${0.22*treeAlpha})`; ctx.fill();
+    }
+  }
+
+  // ---- boucle ----
+  let last=0;
+  function tick(ts){
+    const dt = Math.min(50, ts-last||16); last=ts;
+    // Cadence des simulations : ~1 toutes les 95 ms (croissance lente, ambiante)
+    simTimer += dt;
+    if (simTimer > 95){ simTimer = 0; simulate(); }
+    pulseT += dt/780;                                        // pulse ~0,78 s par PV
+
+    // Machine à états : grow → commit (le PV brille) → fade → reseed
+    if (phase==='commit'){ phaseT += dt; if (phaseT>650){ phase='fade'; phaseT=0; } }
+    else if (phase==='fade'){ phaseT += dt; treeAlpha = Math.max(0, 1 - phaseT/700);
+      if (treeAlpha<=0){ seed(); } }
+
+    draw();
+    raf = requestAnimationFrame(tick);
+  }
+
+  function staticFrame(){
+    // prefers-reduced-motion : on construit un arbre complet une fois, sans animation.
+    seed();
+    let g=0; while (nodes.length < CAP*0.8 && g++ < 400) simulate();
+    if (phase!=='grow'){ phase='grow'; treeAlpha=1; }
+    computePV(); pulseT=0; draw();
+  }
+
+  function start(){
+    cancelAnimationFrame(raf);
+    if (reduce) staticFrame();
+    else { last=0; raf=requestAnimationFrame(tick); }
+  }
+
+  let rt;
+  addEventListener('resize', ()=>{ clearTimeout(rt); rt=setTimeout(()=>{ resize(); start(); },200); });
+  document.addEventListener('visibilitychange', ()=>{
+    if (document.hidden) cancelAnimationFrame(raf);
+    else if (!reduce) start();
+  });
+
+  resize(); start();
+})();
+</script>
+
+</body>
+</html>

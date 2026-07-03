@@ -1,0 +1,5 @@
+# Cycle ponder miss : startPonder, puis stop → bestmove final (sans ponderhit).
+> position startpos moves e2e4 e7e5
+> go ponder
+> stop
+< bestmove .*

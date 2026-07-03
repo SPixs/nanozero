@@ -1,0 +1,176 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.nanozero</groupId>
+        <artifactId>nanozero-parent</artifactId>
+        <version>1.5.0</version>
+    </parent>
+
+    <artifactId>nanozero-uci</artifactId>
+    <version>1.5.0</version>
+    <packaging>jar</packaging>
+
+    <name>NanoZero UCI</name>
+    <description>
+        Adaptateur protocole UCI (Universal Chess Interface) au-dessus de
+        nanozero-engine. Pilote l'engine via stdin/stdout. Point d'entrée
+        exécutable : org.nanozero.uci.UciMain. Cf. SPEC-uci.md §1.
+    </description>
+
+    <dependencies>
+        <!-- Compile : engine (API async + types associés). board + nn viennent en transitive.
+             v1.1.0+ : engine 1.1.0 expose le record EngineConfig étendu (3 champs Dirichlet)
+             utilisé par les hidden options DirichletAlpha/Epsilon/Seed (cf. SPEC §6.4).
+             v1.1.1+ : bump engine 1.1.0 -> 1.1.2 pour bénéficier des 4 fixes review
+             post-v1.1.0 (terminal root crash, NaN/Inf validation, isolation cross-search
+             critique self-play, constructor 3-args source-compat). Cf. CHANGELOG UCI v1.1.1
+             "Indirect benefits". -->
+        <dependency>
+            <groupId>org.nanozero</groupId>
+            <artifactId>nanozero-engine</artifactId>
+            <version>1.5.0</version>
+        </dependency>
+
+        <!-- Test scope -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Compiler : JDK 25 (release flag hérité du parent pluginManagement). -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <release>25</release>
+                </configuration>
+            </plugin>
+
+            <!-- Surefire : argLine 'add-modules jdk.incubator.vector' requis dès qu'un test
+                 instancie Network (chargement transitive Vector API depuis nn). Anticipé dès
+                 phase 0 pour éviter une LinkageError silencieuse en phase 5+ quand des tests
+                 d'intégration UciSession instancient un vrai Engine. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>--add-modules jdk.incubator.vector ${argLine}</argLine>
+                </configuration>
+            </plugin>
+
+            <!-- Spotless : Google Java Format (config héritée du parent pluginManagement) -->
+            <plugin>
+                <groupId>com.diffplug.spotless</groupId>
+                <artifactId>spotless-maven-plugin</artifactId>
+            </plugin>
+
+            <!-- Enforcer : JDK 25, Maven 3.9+, dependency convergence -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+            </plugin>
+
+            <!-- JaCoCo : prepare-agent + report + check (90 % BUNDLE LINE+BRANCH).
+                 Actif dès phase 1 cohérent avec board / nn / engine — les types squelettes
+                 phase 1 (UciCommand, UciResponse, UciOption sealed + records) sont triviaux
+                 à couvrir, et c'est l'attente de la phase 1 §12 SPEC-uci. -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>jacoco-check</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+
+            <!-- Maven JAR : Main-Class manifest pour produire un JAR exécutable.
+                 Note runtime : nécessite l'option Vector API incubator (cf. SPEC §10.3,
+                 transitive depuis nn) :
+                   java [add-modules jdk.incubator.vector] [jar nanozero-uci-1.0.0.jar]
+                        [network model.npz] [debug]
+                 Le JAR shadé (cf. plugin shade ci-dessous) embarque board / nn / engine
+                 + dépendances et constitue le livrable v1.0.0 distribuable. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-jar-plugin</artifactId>
+                <configuration>
+                    <archive>
+                        <manifest>
+                            <mainClass>org.nanozero.uci.UciMain</mainClass>
+                        </manifest>
+                    </archive>
+                </configuration>
+            </plugin>
+
+            <!-- Maven Shade : produit le fat JAR autonome (board + nn + engine +
+                 nanozero-uci bundled) à la phase package. Le JAR remplace l'artifact
+                 principal et est lançable via java jar.
+                 Filtres : exclut les signatures META-INF/*.SF / *.DSA / *.RSA des
+                 dépendances signées (none actuellement, garde-fou pour les ajouts
+                 v1.1.0+). Pas de relocation de packages (zéro dépendance externe
+                 actuellement, juste internal nanozero-* + JDK). -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-shade-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <phase>package</phase>
+                        <goals>
+                            <goal>shade</goal>
+                        </goals>
+                        <configuration>
+                            <createDependencyReducedPom>false</createDependencyReducedPom>
+                            <filters>
+                                <filter>
+                                    <artifact>*:*</artifact>
+                                    <excludes>
+                                        <exclude>META-INF/*.SF</exclude>
+                                        <exclude>META-INF/*.DSA</exclude>
+                                        <exclude>META-INF/*.RSA</exclude>
+                                    </excludes>
+                                </filter>
+                            </filters>
+                            <transformers>
+                                <transformer
+                                    implementation="org.apache.maven.plugins.shade.resource.ManifestResourceTransformer">
+                                    <mainClass>org.nanozero.uci.UciMain</mainClass>
+                                </transformer>
+                            </transformers>
+                        </configuration>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+</project>

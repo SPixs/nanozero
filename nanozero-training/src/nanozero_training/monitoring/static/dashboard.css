@@ -1,0 +1,117 @@
+* { box-sizing: border-box; }
+html, body { height: 100%; margin: 0; }
+body {
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: #1a1a1a;
+  color: #e0e0e0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+header {
+  background: #2a2a2a;
+  padding: 0.5rem 1rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+}
+header h1 { margin: 0; font-size: 1rem; }
+.badge {
+  display: inline-block;
+  padding: 0.15rem 0.5rem;
+  margin-left: 0.25rem;
+  border-radius: 3px;
+  background: #444;
+  font-size: 0.75rem;
+}
+.badge.in_progress { background: #2a7a2a; }
+.badge.completed { background: #2a4a7a; }
+.badge.aborted { background: #7a4a2a; }
+.badge.error { background: #7a2a2a; }
+
+main.grid-2x2 {
+  flex: 1;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  gap: 0.5rem;
+  padding: 0.5rem;
+  min-height: 0;
+}
+.card {
+  background: #2a2a2a;
+  border-radius: 4px;
+  padding: 0.6rem 0.8rem;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  overflow: hidden;
+}
+.card h2 {
+  margin: 0 0 0.3rem 0;
+  font-size: 0.9rem;
+  color: #b0b0b0;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  flex-shrink: 0;
+}
+.progress-bar {
+  background: #444;
+  height: 0.7rem;
+  border-radius: 2px;
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.progress-fill {
+  background: #4a8aff;
+  height: 100%;
+  width: 0%;
+  transition: width 0.4s;
+}
+.big {
+  font-size: 1.05rem;
+  font-weight: 500;
+  margin: 0.3rem 0;
+  flex-shrink: 0;
+}
+
+table.kv {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.85rem;
+  flex-shrink: 0;
+}
+table.kv td {
+  padding: 0.15rem 0.3rem;
+  border-bottom: 1px solid #333;
+}
+table.kv td:first-child { color: #888; }
+table.kv td:last-child { text-align: right; font-variant-numeric: tabular-nums; }
+
+.decision { font-weight: bold; }
+.decision.h1_accepted { color: #4aff8a; }
+.decision.h0_accepted { color: #ff8a4a; }
+
+.chart-wrap {
+  flex: 1;
+  min-height: 0;
+  position: relative;
+  margin-top: 0.4rem;
+}
+.chart-wrap canvas {
+  max-height: 100% !important;
+  max-width: 100% !important;
+}
+
+#versions-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.8rem;
+}
+#versions-table th, #versions-table td {
+  padding: 0.2rem 0.4rem;
+  border-bottom: 1px solid #333;
+  text-align: left;
+}
+#versions-table th { background: #333; color: #aaa; font-weight: 500; }

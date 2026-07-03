@@ -1,0 +1,4 @@
+# Recherche simple : position startpos + go nodes 20 → bestmove final.
+> position startpos
+> go nodes 20
+< bestmove .*

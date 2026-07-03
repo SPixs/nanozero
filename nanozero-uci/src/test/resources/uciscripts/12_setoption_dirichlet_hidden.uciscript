@@ -1,0 +1,19 @@
+# v1.1.0 : pattern hidden options Dirichlet.
+# - Le handshake post-uci ne déclare PAS DirichletAlpha/Epsilon/Seed.
+# - setoption sur ces noms est accepté silencieusement (pas d'erreur, pas d'output).
+# - isready confirme l'engine encore vivant après les setoption hidden.
+# - Une recherche simple confirme que l'engine fonctionne avec ces options.
+> uci
+< id name NanoZero.*
+< id author .*
+< option name Ponder.*
+< option name Move Overhead.*
+< uciok
+> setoption name DirichletAlpha value 300
+> setoption name DirichletEpsilon value 250
+> setoption name DirichletSeed value 42
+> isready
+< readyok
+> position startpos
+> go nodes 20
+< bestmove .*

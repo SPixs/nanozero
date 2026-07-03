@@ -1,0 +1,15 @@
+{
+  "name": "NanoZero",
+  "short_name": "NanoZero",
+  "description": "Moteur d'échecs AlphaZero entraîné par la communauté.",
+  "lang": "fr",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#0B0F16",
+  "theme_color": "#0B0F16",
+  "icons": [
+    { "src": "/assets/logo/favicons/icon-128.png", "sizes": "128x128", "type": "image/png" },
+    { "src": "/assets/logo/favicons/icon-256.png", "sizes": "256x256", "type": "image/png" },
+    { "src": "/assets/logo/favicons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}

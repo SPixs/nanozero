@@ -1,0 +1,21 @@
+{
+  "name": "nanozero-web",
+  "version": "0.1.0",
+  "type": "module",
+  "private": true,
+  "description": "Site nanozero.org — surfaces Jouer / Analyse (cœur JS partagé avec le worker de contribution)",
+  "scripts": {
+    "build:play": "node build/esbuild-play.mjs",
+    "build:analyse": "node build/esbuild-analyse.mjs",
+    "build:bench": "node build/esbuild-bench.mjs",
+    "build:sts": "node build/esbuild-sts.mjs",
+    "test": "node --test core/*.test.mjs"
+  },
+  "dependencies": {
+    "chessops": "^0.15.0"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.0",
+    "onnxruntime-node": "^1.27.0"
+  }
+}

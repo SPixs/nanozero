@@ -1,0 +1,45 @@
+# Catalogue des positions edge case couvertes par EdgeCasesTest (cf. SPEC §8.6).
+# Format : une ligne par cas, FEN suivie de " ; " puis description du résultat attendu.
+# Les FENs intègrent les patches A-E appliqués aux SPEC §15.2 / §15.3 en début phase 10.
+# Cette liste est un document de référence consultable ; les tests Java embarquent les FENs
+# inline pour clarté de lecture sans I/O.
+
+# ---- §5.3.10, §15.2 — EP discovered check ----
+8/8/8/KPp4r/8/8/8/4k3 w - c6 0 1            ; b5xc6 e.p. ILLEGAL — tour h5 voit roi a5 après retrait des pions
+7b/8/8/3Pp3/8/8/8/K6k w - e6 0 1            ; d5xe6 e.p. ILLEGAL — fou h8 voit roi a1 sur la longue diagonale
+4k3/8/8/3Pp3/8/8/8/4K3 w - e6 0 1           ; d5xe6 e.p. LEGAL — pas de slider sur la ligne (contrôle positif)
+
+# ---- §5.3.3, §15.3 — Pinned piece moves ----
+4k3/4r3/8/8/8/8/4N3/4K3 w - - 0 1           ; cavalier e2 cloué orthogonalement, 0 coup de cavalier
+4k3/8/8/8/4q3/8/4B3/4K3 w - - 0 1           ; fou e2 cloué orthogonalement, 0 coup de fou
+4k3/8/8/4q3/8/8/4Q3/4K3 w - - 0 1           ; dame e2 clouée verticalement, bouge sur e-file uniquement (e3, e4, xe5)
+8/6k1/5p2/4B3/8/8/8/7K b - - 0 1            ; pion f6 cloué diagonalement par Be5, capture xe5 OK (cloueur), push f5 INTERDIT
+4k3/8/8/3pP3/8/8/8/4K3 b - - 0 1            ; pas de pin (contrôle positif), pion d5 noir bouge librement
+4k3/8/4K3/2pP4/8/1b6/8/8 w - c6 0 1         ; EP avec pin diagonal §15.3 ligne 6 (post-patch B), dxc6 e.p. INTERDIT
+
+# ---- §5.3.7 — Castling edge cases ----
+r3k2r/8/8/8/8/8/5r2/R3K2R w KQkq - 0 1      ; O-O INTERDIT (case f1 attaquée par tour noire f2), O-O-O OK
+r3k2r/8/8/8/8/8/4r3/R3K2R w KQkq - 0 1      ; O-O et O-O-O INTERDITS (roi blanc en échec par tour e2)
+r3k2r/8/8/8/8/8/8/R3K2R w Kk - 0 1          ; castling rights partiels Kk → seul O-O autorisé
+
+# ---- §3.4 — Promotion avec capture ----
+3rk3/4P3/8/8/8/8/8/4K3 w - - 0 1            ; e7xd8 → 4 sous-promotions (Q, R, B, N) ; push e7-e8 bloqué par roi e8
+
+# ---- §6.1 — Mat / pat ----
+4k3/8/8/8/8/8/5PPP/r6K w - - 0 1            ; mat du couloir, isCheckmate true, 0 coup
+7k/5Q2/6K1/8/8/8/8/8 b - - 0 1              ; pat construit, isStalemate true, 0 coup
+
+# ---- §6.4 — Insufficient material (sentinelles, matrice complète en GameStateTest) ----
+4k3/8/8/8/8/8/8/4K3 w - - 0 1               ; KvK isInsufficientMaterial true
+4k3/8/3b4/8/8/8/3B4/4K3 w - - 0 1           ; KBvKB même couleur (cases sombres), isInsufficientMaterial true
+4k3/3b4/8/8/8/8/3B4/4K3 w - - 0 1           ; KBvKB couleurs différentes, isInsufficientMaterial false
+4k3/8/8/8/8/2N5/4N3/4K3 w - - 0 1           ; KNN vs K, isInsufficientMaterial false
+
+# ---- §6.3 — 50-move rule au seuil ----
+4k3/8/8/8/8/8/8/3RK3 w - - 99 1             ; halfmoveClock = 99, isFiftyMoveRule false
+4k3/8/8/8/8/8/8/3RK3 w - - 100 1            ; halfmoveClock = 100, isFiftyMoveRule true
+
+# ---- §6.2, ADR-012 — Threefold repetition + castling rights différents ----
+# Threefold strict : voir EdgeCasesTest.threefoldExactKnightShuffle (séquence dynamique)
+r3k2r/8/8/8/8/8/8/R3K2R w KQkq - 0 1        ; bitboards identiques au cas suivant
+r3k2r/8/8/8/8/8/8/R3K2R w kq - 0 1          ; mêmes bitboards, castling rights ≠ → Zobrist différent

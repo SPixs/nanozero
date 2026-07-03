@@ -1,0 +1,10 @@
+# Profil dev : Postgres local jetable, CORS localhost, rate-limit permissif.
+spring:
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5432/nanozero_dev?currentSchema=site}
+nanozero:
+  site:
+    cors-origins: "http://localhost,http://localhost:8000,http://127.0.0.1:8000"
+    rate-limit:
+      post-per-minute: 100000
+      get-per-minute: 100000

@@ -1,0 +1,160 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>org.nanozero</groupId>
+    <artifactId>nanozero-parent</artifactId>
+    <version>1.5.0</version>
+    <relativePath>../pom.xml</relativePath>
+  </parent>
+
+  <artifactId>nanozero-board</artifactId>
+  <packaging>jar</packaging>
+
+  <name>NanoZero Board</name>
+  <description>Représentation d'échiquier, génération fully-legal de coups, hashing Zobrist, plans NN AlphaZero.</description>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.assertj</groupId>
+      <artifactId>assertj-core</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!--
+      Phase 12 (release v1.0.0) : la dépendance test chesslib a été supprimée
+      conformément à SPEC §11.2.2 et §14 phase 12. Le repository JitPack qui
+      l'hébergeait a été retiré dans la même opération. Le code historique du
+      test est archivé dans nanozero-board/archive/ (cf. archive/README.md).
+    -->
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-compiler-plugin</artifactId>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-surefire-plugin</artifactId>
+        <executions>
+          <!--
+            Deux executions Surefire (cf. SPEC §14 phase 10, chantier 4) :
+
+            1. default-test : exécute toute la suite SAUF BitboardsTest. La JVM
+               de fork est partagée entre les classes (reuseForks=true par
+               défaut) pour minimiser l'overhead. Les tests @Tag("slow")
+               (Perft profondeurs élevées + cross-validation 1M) sont exclus
+               en CI rapide ; le profil "perft-full" les ré-inclut.
+
+            2. bitboards-isolated : exécute UNIQUEMENT BitboardsTest dans un
+               fork JVM dédié (reuseForks=false). Ce test mesure la durée du
+               <clinit> de Bitboards en classloader isolé, et la pression GC
+               accumulée par le reste de la suite (notamment chesslib qui
+               instancie ~10 000 Boards) faussait la mesure : le seuil avait
+               dû être gonflé à 1500 ms en phase 3. Avec ce fork dédié, le
+               seuil est restauré à une valeur réaliste (cf. §9.2).
+          -->
+          <execution>
+            <id>default-test</id>
+            <goals>
+              <goal>test</goal>
+            </goals>
+            <configuration>
+              <excludes>
+                <exclude>**/BitboardsTest.java</exclude>
+              </excludes>
+              <excludedGroups>slow</excludedGroups>
+            </configuration>
+          </execution>
+          <execution>
+            <id>bitboards-isolated</id>
+            <phase>test</phase>
+            <goals>
+              <goal>test</goal>
+            </goals>
+            <configuration>
+              <reuseForks>false</reuseForks>
+              <!--
+                argLine vide : désactive l'agent JaCoCo dans ce fork. La mesure
+                de durée d'init de Bitboards (warmupBootUnderBudget) doit être
+                effectuée sur du bytecode non instrumenté, sinon l'overhead
+                JaCoCo (~700 ms supplémentaires) fausse la mesure et impose un
+                seuil budget irréaliste. L'absence de coverage sur ce fork est
+                acceptable : les méthodes publiques de Bitboards sont déjà
+                exercées par MoveGen, Position et leurs tests respectifs (cf.
+                rapport JaCoCo : Bitboards 99 % line / 98 % branch).
+              -->
+              <argLine></argLine>
+              <includes>
+                <include>**/BitboardsTest.java</include>
+              </includes>
+              <excludedGroups>slow</excludedGroups>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-enforcer-plugin</artifactId>
+      </plugin>
+      <plugin>
+        <groupId>com.diffplug.spotless</groupId>
+        <artifactId>spotless-maven-plugin</artifactId>
+      </plugin>
+      <plugin>
+        <groupId>org.jacoco</groupId>
+        <artifactId>jacoco-maven-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </build>
+
+  <profiles>
+    <!--
+      Profil "perft-full" : ré-inclut les tests @Tag("slow") (cf. SPEC §14
+      phase 10). À utiliser via `mvn -Pperft-full verify`. Couvre Kiwipete d=6
+      (~8 G nodes), Position 3 d=7 (~178 M), Position 4 d=6 (~706 M), Position
+      6 d=6 (~7 G), et la cross-validation 1M transitions chesslib.
+    -->
+    <profile>
+      <id>perft-full</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-surefire-plugin</artifactId>
+            <executions>
+              <execution>
+                <id>default-test</id>
+                <configuration>
+                  <excludes>
+                    <exclude>**/BitboardsTest.java</exclude>
+                  </excludes>
+                  <excludedGroups combine.self="override"></excludedGroups>
+                </configuration>
+              </execution>
+              <execution>
+                <id>bitboards-isolated</id>
+                <configuration>
+                  <reuseForks>false</reuseForks>
+                  <includes>
+                    <include>**/BitboardsTest.java</include>
+                  </includes>
+                  <excludedGroups combine.self="override"></excludedGroups>
+                </configuration>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+</project>

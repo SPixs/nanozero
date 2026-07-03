@@ -1,0 +1,4 @@
+# Recherche depuis FEN : KP vs K endgame.
+> position fen 4k3/8/8/8/8/8/4P3/4K3 w - - 0 1
+> go nodes 20
+< bestmove .*

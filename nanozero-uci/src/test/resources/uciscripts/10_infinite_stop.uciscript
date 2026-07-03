@@ -1,0 +1,5 @@
+# go infinite + stop → bestmove final via signal stop.
+> position startpos
+> go infinite
+> stop
+< bestmove .*

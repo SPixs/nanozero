@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  PoC standalone (Phase 1) - PAS rattaché au parent multi-module nanozero pour
+  permettre build sur DevSrv JDK 21 (parent enforcer JDK 25).
+  Phase 2 : promouvoir en module avec inheritance parent + JDK 25 target.
+-->
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <groupId>org.nanozero</groupId>
+    <artifactId>nanozero-nn-onnx</artifactId>
+    <version>1.0.0-SNAPSHOT</version>
+    <packaging>jar</packaging>
+
+    <properties>
+        <maven.compiler.release>25</maven.compiler.release>
+        <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+        <onnxruntime.version>1.20.0</onnxruntime.version>
+        <onnxruntime.artifact>onnxruntime</onnxruntime.artifact>
+        <junit.version>5.10.2</junit.version>
+    </properties>
+
+    <profiles>
+        <!-- Phase 3b : ORT GPU CUDA EP. Activer via -Pgpu sur W3090 RTX 3090.
+             Le artifact onnxruntime_gpu remplace onnxruntime (CPU only) et inclut
+             CUDA EP + CPU EP fallback. -->
+        <profile>
+            <id>gpu</id>
+            <properties>
+                <onnxruntime.artifact>onnxruntime_gpu</onnxruntime.artifact>
+            </properties>
+        </profile>
+    </profiles>
+
+    <dependencies>
+        <!-- ONNX Runtime Java :
+             - default profile : onnxruntime (CPU only, ~30 MB)
+             - profile gpu     : onnxruntime_gpu (CPU + CUDA EP, ~150 MB) Phase 3b -->
+        <dependency>
+            <groupId>com.microsoft.onnxruntime</groupId>
+            <artifactId>${onnxruntime.artifact}</artifactId>
+            <version>${onnxruntime.version}</version>
+        </dependency>
+
+        <!-- Parity test : besoin du Network Vector API actuel + NetworkLoader -->
+        <dependency>
+            <groupId>org.nanozero</groupId>
+            <artifactId>nanozero-nn</artifactId>
+            <version>1.0.0</version>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Tests -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <version>${junit.version}</version>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <plugin>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <version>3.13.0</version>
+                <configuration>
+                    <release>25</release>
+                </configuration>
+            </plugin>
+            <plugin>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <version>3.2.5</version>
+                <configuration>
+                    <argLine>--add-modules jdk.incubator.vector</argLine>
+                </configuration>
+            </plugin>
+        </plugins>
+    </build>
+</project>

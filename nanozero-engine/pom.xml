@@ -1,0 +1,167 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.nanozero</groupId>
+        <artifactId>nanozero-parent</artifactId>
+        <version>1.5.0</version>
+    </parent>
+
+    <artifactId>nanozero-engine</artifactId>
+    <version>1.5.0</version>
+    <packaging>jar</packaging>
+
+    <name>NanoZero Engine</name>
+    <description>
+        Recherche MCTS PUCT (variante AlphaZero) guidée par réseau de neurones.
+        Consomme nanozero-board (état/MoveGen) et nanozero-nn (Network/MoveEncoding/
+        BitboardPlaneEncoderVector). API asynchrone (startSearch/startPonder/
+        ponderhit/stop/currentBest) avec thread de contrôle interne. Mono-thread
+        search en v1.0.0 (cf. ADR-002).
+    </description>
+
+    <dependencies>
+        <!-- Compile : board (état/MoveGen) + nn (Network/MoveEncoding/encoder) -->
+        <dependency>
+            <groupId>org.nanozero</groupId>
+            <artifactId>nanozero-board</artifactId>
+            <version>1.5.0</version>
+        </dependency>
+        <dependency>
+            <groupId>org.nanozero</groupId>
+            <artifactId>nanozero-nn</artifactId>
+            <version>1.5.0</version>
+        </dependency>
+
+        <!-- Test scope -->
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter</artifactId>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.assertj</groupId>
+            <artifactId>assertj-core</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <build>
+        <plugins>
+            <!-- Compiler : JDK 25. Pas d'argLine 'add-modules jdk.incubator.vector'
+                 ici : nanozero-engine ne référence pas la Vector API directement
+                 (cf. SPEC-engine §10.2). Les classes Vector API restent
+                 enfermées dans nanozero-nn (transitive runtime). À ré-ajouter
+                 si une phase ultérieure expose des kernels SIMD côté engine. -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <release>25</release>
+                </configuration>
+            </plugin>
+
+            <!-- Surefire : exclusion @Tag("perf") + @Tag("slow") par défaut.
+                 - perf : benchs informatifs (alignement nn).
+                 - slow : tests intégration NN end-to-end coûteux (>5 s), typiquement
+                          les classes Dirichlet end-to-end (v1.1.0). Skipped par
+                          défaut pour CI rapide ; ré-activable via -Pslow.
+                 argLine 'add-modules jdk.incubator.vector' requis dès qu'un
+                 test instancie Network (chargement transitive Vector API). -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-surefire-plugin</artifactId>
+                <configuration>
+                    <argLine>--add-modules jdk.incubator.vector ${argLine}</argLine>
+                    <excludedGroups>perf | slow</excludedGroups>
+                </configuration>
+            </plugin>
+
+            <!-- Spotless : Google Java Format (config héritée du parent) -->
+            <plugin>
+                <groupId>com.diffplug.spotless</groupId>
+                <artifactId>spotless-maven-plugin</artifactId>
+            </plugin>
+
+            <!-- Enforcer : JDK 25, Maven 3.9+, dependency convergence -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-enforcer-plugin</artifactId>
+            </plugin>
+
+            <!-- JaCoCo : prepare-agent + report + check (90 % BUNDLE LINE+BRANCH).
+                 Le seuil est défini par la rule jacoco-check du pluginManagement
+                 parent. Activé dès phase 1 cohérent avec board (les types de
+                 base sont triviaux à couvrir, et c'est l'attente de la phase 1
+                 phase 1 §12 SPEC-engine). -->
+            <plugin>
+                <groupId>org.jacoco</groupId>
+                <artifactId>jacoco-maven-plugin</artifactId>
+                <executions>
+                    <execution>
+                        <id>prepare-agent</id>
+                        <goals>
+                            <goal>prepare-agent</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>report</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>report</goal>
+                        </goals>
+                    </execution>
+                    <execution>
+                        <id>jacoco-check</id>
+                        <phase>verify</phase>
+                        <goals>
+                            <goal>check</goal>
+                        </goals>
+                    </execution>
+                </executions>
+            </plugin>
+        </plugins>
+    </build>
+
+    <profiles>
+        <!-- Profil perf : ré-inclut les tests @Tag("perf") (benchs informatifs).
+             Exclus par défaut pour CI rapide.
+             Usage : mvn -pl nanozero-engine -Pperf verify -->
+        <profile>
+            <id>perf</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <excludedGroups combine.self="override"></excludedGroups>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+
+        <!-- Profil slow : ré-inclut les tests @Tag("slow") (intégration NN end-to-end coûteuse,
+             typiquement EngineDirichletTest et EngineDirichletInternalTest v1.1.0).
+             Exclus par défaut pour CI rapide.
+             Usage : mvn -pl nanozero-engine -Pslow verify (~2 min ajoutées). -->
+        <profile>
+            <id>slow</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.apache.maven.plugins</groupId>
+                        <artifactId>maven-surefire-plugin</artifactId>
+                        <configuration>
+                            <excludedGroups combine.self="override">perf</excludedGroups>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+</project>

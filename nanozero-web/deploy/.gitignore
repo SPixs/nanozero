@@ -1,0 +1,8 @@
+# Secrets / état local de déploiement — jamais versionnés.
+.env
+
+# Le worker bundle est un artefact buildé (esbuild), copié dans site/worker/ au déploiement.
+site/worker/
+
+# Prototype de fond MCTS (exploration, non déployé)
+site/mcts-bg-prototype.html

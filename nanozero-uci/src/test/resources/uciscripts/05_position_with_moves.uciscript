@@ -1,0 +1,4 @@
+# Position avec moves appliqués depuis startpos.
+> position startpos moves e2e4 e7e5 g1f3
+> go nodes 20
+< bestmove .*

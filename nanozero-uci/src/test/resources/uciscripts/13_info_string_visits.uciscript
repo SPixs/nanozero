@@ -1,0 +1,10 @@
+# v1.2.0 : émission "info string visits <move> <count> ..." à la fin de chaque search,
+# juste avant bestmove. Validation end-to-end :
+# - go nodes 64 sur startpos déclenche une recherche réelle.
+# - Une ligne "info string visits ..." doit être émise avant le bestmove.
+# - La ligne contient au moins 2 tokens après "visits " (au moins 1 pair move/count).
+# Cf. SPEC §6.5 amendée v1.2.0, ADR-003 mise à jour v1.2.0 "hidden behaviors pattern".
+> position startpos
+> go nodes 64
+< info string visits .*
+< bestmove .*

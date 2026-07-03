@@ -1,0 +1,84 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Bench STS — NanoZero</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Space+Grotesk:wght@500;700&display=swap" rel="stylesheet">
+  <style>
+    :root{--bg:#0B0F16;--surface:#1A1F2B;--surface-hi:#242938;--line:#31384A;--text:#F5F7FA;
+      --muted:#AAB3C7;--gold:#c9a96e;--mint:#7EDC9A;--font-disp:"Space Grotesk",system-ui,sans-serif;--font-body:Inter,system-ui,sans-serif;}
+    *,*::before,*::after{box-sizing:border-box;margin:0;}
+    body{background:var(--bg) radial-gradient(circle at 1px 1px,rgba(49,56,74,.22) 1px,transparent 0) 0 0/30px 30px;
+      color:var(--text);font-family:var(--font-body);min-height:100dvh;padding:2rem 1.5rem;}
+    main{max-width:720px;margin:0 auto;display:flex;flex-direction:column;gap:1.25rem;}
+    a.back{font-family:var(--font-disp);font-size:.78rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);text-decoration:none;}
+    a.back:hover{color:var(--gold);} a.back::before{content:'← ';}
+    h1{font-family:var(--font-disp);font-size:1.5rem;font-weight:700;}
+    h1 .accent{color:var(--gold);}
+    p.hint{color:var(--muted);font-size:.9rem;}
+    .card{background:var(--surface);border:1px solid var(--line);border-radius:12px;padding:1.25rem;display:flex;flex-direction:column;gap:1rem;}
+    legend{font-family:var(--font-disp);font-size:.78rem;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin-bottom:.4rem;}
+    .opts{display:flex;gap:.5rem;flex-wrap:wrap;}
+    .opt{flex:1 1 0;min-width:90px;cursor:pointer;display:block;position:relative;}
+    .opt input{position:absolute;opacity:0;width:0;height:0;}
+    .opt .box{display:block;border:1px solid var(--line);border-radius:10px;padding:.6rem;background:var(--surface-hi);}
+    .opt .box .t{display:block;font-weight:600;} .opt .box .d{display:block;font-size:.74rem;color:var(--muted);}
+    .opt input:checked + .box{border-color:var(--gold);background:rgba(201,169,110,.12);}
+    .row{display:flex;align-items:center;gap:.8rem;flex-wrap:wrap;}
+    label.fld{font-size:.85rem;color:var(--muted);}
+    input[type=number]{width:6rem;background:var(--surface-hi);color:var(--text);border:1px solid var(--line);border-radius:8px;padding:.4rem .6rem;font:inherit;}
+    button{font-family:var(--font-disp);font-weight:700;border:0;border-radius:10px;padding:.7rem 1.2rem;cursor:pointer;}
+    #run-btn{background:var(--mint);color:#0B0F16;} #run-btn:disabled{opacity:.55;cursor:progress;}
+    #stop-btn{background:transparent;color:var(--muted);border:1px solid var(--line);}
+    .bar{height:8px;background:var(--surface-hi);border-radius:99px;overflow:hidden;}
+    .bar i{display:block;height:100%;width:0;background:var(--gold);transition:width .1s linear;}
+    .grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(120px,1fr));gap:.75rem;}
+    .stat{background:var(--surface-hi);border-radius:10px;padding:.7rem;}
+    .stat .k{font-size:.72rem;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;}
+    .stat .v{font-family:var(--font-disp);font-size:1.25rem;font-weight:700;}
+    .stat .v#elo{color:var(--gold);}
+    #status{font-size:.85rem;color:var(--muted);min-height:1.1em;}
+    table{width:100%;border-collapse:collapse;font-size:.82rem;}
+    th,td{text-align:left;padding:.25rem .5rem;border-bottom:1px solid var(--line);}
+    th{color:var(--muted);font-weight:600;font-size:.74rem;text-transform:uppercase;}
+  </style>
+</head>
+<body>
+  <main>
+    <a class="back" href="/play/">Jouer</a>
+    <div>
+      <h1>Bench <span class="accent">STS</span></h1>
+      <p class="hint">Strategic Test Suite (1500 positions, Dann Corbit). Mesure la force stratégique de Nano
+        au budget d'un niveau de jeu. Meilleur coup déterministe (la température de jeu n'entre pas).
+        À lancer depuis un desktop avec GPU (WebGPU). <span id="epd-info"></span></p>
+    </div>
+
+    <div class="card">
+      <fieldset>
+        <legend>Niveau (budget de recherche)</legend>
+        <div class="opts" id="level-opts"></div>
+      </fieldset>
+      <div class="row">
+        <label class="fld">Positions : <input type="number" id="count" min="1" value="200"></label>
+        <button id="run-btn">Lancer le STS</button>
+        <button id="stop-btn">Stop</button>
+      </div>
+      <p id="status" aria-live="polite"></p>
+    </div>
+
+    <div class="card">
+      <div class="bar"><i id="bar-fill"></i></div>
+      <div class="grid">
+        <div class="stat"><div class="k">Progression</div><div class="v" id="prog">0 / 0</div></div>
+        <div class="stat"><div class="k">Score</div><div class="v" id="score">0 / 0</div></div>
+        <div class="stat"><div class="k">Réussite</div><div class="v" id="pct">0 %</div></div>
+        <div class="stat"><div class="k">STS Elo</div><div class="v" id="elo">~—</div></div>
+      </div>
+      <div id="rate" style="font-size:.8rem;color:var(--muted)"></div>
+      <table id="cat-table"></table>
+    </div>
+  </main>
+  <script type="module" src="dist/sts.bundle.js"></script>
+</body>
+</html>
