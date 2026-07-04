@@ -112,6 +112,8 @@
     display:flex; align-items:center; gap:.5rem; flex-wrap:wrap; }
   .energy-note[hidden] { display:none; }
   .energy-note.heat { color:#f4b740; }   /* Max = chaleur → ambre doux (même teinte que .warn) */
+  .energy-note code { font-family:ui-monospace,monospace; font-size:.78rem; color:var(--fg);
+    background:var(--panel-sunken); border:1px solid var(--line); border-radius:var(--r-sm); padding:.05rem .3rem; }
   .energy-note .eco-link { font:inherit; font-size:.8rem; padding:.2rem .55rem; cursor:pointer;
     background:transparent; color:var(--brand-blue); border:1px solid var(--line); border-radius:var(--r-sm);
     transition:border-color .12s; }
@@ -462,6 +464,7 @@
       <p class="energy-note" id="warn-battery" hidden>Sur batterie&nbsp;? Le mode Éco ménage ton autonomie.
         <button type="button" id="warn-battery-eco" class="eco-link">Passer en Éco</button></p>
       <p class="energy-note" id="warn-cpu" hidden>Peu de cœurs CPU détectés : la contribution sera lente (le GPU reste utilisé s'il est disponible).</p>
+      <p class="energy-note" id="warn-gpu" hidden></p>
     </div>
 
     <details class="adv">

@@ -2,6 +2,7 @@
 import { createConsentController } from '../../ui/consent.mjs';
 import { createCoalescer } from '../../ui/coalesce.mjs';
 import { fenToCells, algToFileRank } from '../../ui/board-render.mjs';
+import { gpuStatus } from '../../ui/gpu-status.mjs';
 import { runConcurrentContributionLoop } from '../src/run-loop.mjs';
 
 let fail = 0;
@@ -78,6 +79,25 @@ console.log('D) threading onPly — la boucle préfixe le gameId (job_id) à l\'
   check(events.every((e) => e.slot === 0), 'D2 slotIndex STABLE (0) en clé (recyclé d\'une partie à l\'autre)');
   check(events.every((e) => e.gameId === 'game-7'), 'D2b gameId dans le payload (label)');
   check(events[0].ply === 1 && events[0].fen === 'fen-1', 'D3 payload {ply, fen} transmis');
+}
+
+console.log('E) gpu-status — libellé Ressources + aide au repli CPU (Linux/Vulkan)');
+{
+  const ok = gpuStatus({ hasWebGpuApi: true, hasAdapter: true, platform: 'Linux x86_64' });
+  check(ok.gpuOk === true && ok.hw === 'GPU actif (rapide)' && ok.hint === null, 'E1 adaptateur présent → GPU actif, aucun conseil');
+
+  const linux = gpuStatus({ hasWebGpuApi: true, hasAdapter: false, platform: 'Linux x86_64' });
+  check(linux.gpuOk === false && linux.hw === 'CPU seulement (plus lent)', 'E2 Linux sans adaptateur → repli CPU');
+  check(/enable-vulkan/.test(linux.hint), 'E3 Linux sans adaptateur → conseil chrome://flags/#enable-vulkan');
+
+  const noApi = gpuStatus({ hasWebGpuApi: false, hasAdapter: false, platform: 'Win32' });
+  check(!noApi.gpuOk && /WebGPU/.test(noApi.hint) && !/vulkan/i.test(noApi.hint), 'E4 pas d\'API WebGPU → conseil « mettre à jour », pas Vulkan');
+
+  const otherOs = gpuStatus({ hasWebGpuApi: true, hasAdapter: false, platform: 'MacIntel' });
+  check(!otherOs.gpuOk && otherOs.hint !== null && !/vulkan/i.test(otherOs.hint), 'E5 non-Linux sans adaptateur → conseil générique (sans Vulkan)');
+
+  const noPlatform = gpuStatus({ hasWebGpuApi: true, hasAdapter: false });
+  check(!noPlatform.gpuOk && noPlatform.hint !== null, 'E6 plateforme absente → repli CPU avec conseil générique (pas de throw)');
 }
 
 console.log(fail === 0 ? '\nOK — ui-pure selftest vert' : `\nFAIL — ${fail} check(s)`);
