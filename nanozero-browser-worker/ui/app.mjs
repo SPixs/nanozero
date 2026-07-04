@@ -3,6 +3,7 @@
 // Aucun calcul ici : tout le self-play tourne dans le Worker.
 import { createConsentController } from './consent.mjs';
 import { fenToCells, algToFileRank } from './board-render.mjs';
+import { gpuStatus } from './gpu-status.mjs';
 // calibration VALIDÉE — logique PURE de dérivation des presets (départage déterministe bande ε,
 // modes = K pour CPU / batch×K pour GPU). Vit dans son propre module → testable en Node hors DOM.
 import {
@@ -1356,11 +1357,39 @@ function initEnergyWarnings() {
   } catch { /* getBattery absent ou jette → on ignore */ }
 }
 
+// Note GPU : le flag Chrome rendu en <code> (identifiable / copiable), le reste en texte. `hint` est
+// statique (issu de gpuStatus) → construction par nœuds, jamais d'innerHTML.
+function renderGpuHint(el, hint) {
+  el.textContent = '';
+  if (!hint) { el.hidden = true; return; }
+  // Un seul enfant (span) → un seul flex-item : le texte s'écoule normalement avec le <code> inline.
+  const span = document.createElement('span');
+  const FLAG = 'chrome://flags/#enable-vulkan';
+  const i = hint.indexOf(FLAG);
+  if (i < 0) {
+    span.textContent = hint;
+  } else {
+    span.append(hint.slice(0, i));
+    const code = document.createElement('code');
+    code.textContent = FLAG;
+    span.append(code, hint.slice(i + FLAG.length));
+  }
+  el.append(span);
+  el.hidden = false;
+}
+
 // Transparence (FR8) : cœurs + WebGPU RÉEL. navigator.gpu peut exister SANS adaptateur utilisable
-// (machine sans GPU) → on demande vraiment un adaptateur pour ne pas afficher « oui » à tort.
+// (machine sans GPU, ou Linux/Chrome avec Vulkan désactivé) → on demande vraiment un adaptateur pour
+// ne pas afficher « oui » à tort, et on explique le repli CPU au lieu de le subir en silence.
 (async () => {
-  if (navigator.gpu) { try { gpuOk = !!(await navigator.gpu.requestAdapter()); } catch { gpuOk = false; } }
-  $('hw').textContent = `${navigator.hardwareConcurrency || '?'} cœurs · ${gpuOk ? 'GPU actif (rapide)' : 'CPU seulement (plus lent)'}`;
+  let adapter = null;
+  if (navigator.gpu) { try { adapter = await navigator.gpu.requestAdapter(); } catch { adapter = null; } }
+  const platform = navigator.userAgentData?.platform || navigator.platform || '';
+  const status = gpuStatus({ hasWebGpuApi: !!navigator.gpu, hasAdapter: !!adapter, platform });
+  gpuOk = status.gpuOk;
+  $('hw').textContent = `${navigator.hardwareConcurrency || '?'} cœurs · ${status.hw}`;
+  const gpuNote = $('warn-gpu');
+  if (gpuNote) renderGpuHint(gpuNote, status.hint);
   // gpuOk est async → on (re)calcule MODE_PRESETS avec le bon backend une fois connu (défauts
   // conservateurs CPU/GPU si pas de nz_calib valide, valeurs mesurées sinon) et on réapplique le mode
   // courant (à l'arrêt, knobs non verrouillés). Au CHARGEMENT, aucune session ne tourne.
